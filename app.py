@@ -1,10 +1,11 @@
 # ==============================================================================
-# DASHBOARD DE CONFIABILIDAD OPERACIONAL — VERSIÓN PREMIUM V3
+# DASHBOARD DE CONFIABILIDAD OPERACIONAL — VERSIÓN RESPONSIVE V4
 # Análisis de Impacto — Modernización del Estátor
 # Unidad de Generación N.° 1 — Central Hidroeléctrica Playas — EPM
+# Elaborado por Jaime Alonso Rúa Marín — Ingeniero Electronico
 # ==============================================================================
 # Elaboró base: Jaime Alonso Rúa Marín
-# registro 119306
+# Optimización responsive: ChatGPT
 # Área de Instrumentación, Control y Protección
 # Empresas Públicas de Medellín E.S.P.
 # ==============================================================================
@@ -17,7 +18,6 @@ import pandas as pd
 import streamlit as st
 import plotly.express as px
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 
 warnings.filterwarnings("ignore")
 
@@ -145,7 +145,6 @@ def safe_mean(df, col):
 def build_conclusiones_subsistemas(df_antes, df_despues):
     conclusiones = []
 
-    # Estátor y devanado
     a_dev, _, _, _, _ = stats(df_antes, "Temp_Dev_Prom") if not df_antes.empty else (None,)*5
     d_dev, _, _, _, _ = stats(df_despues, "Temp_Dev_Prom") if not df_despues.empty else (None,)*5
     if a_dev is not None and d_dev is not None:
@@ -158,7 +157,6 @@ def build_conclusiones_subsistemas(df_antes, df_despues):
             txt = "Incremento térmico posterior; requiere revisión."
         conclusiones.append({"Subsistema": "Estátor y Devanado", "Delta (°C)": delta, "Conclusión": txt})
 
-    # Cojinetes
     a_ci, _, _, _, _ = stats(df_antes, "Temp_Metal_CojInf_Seg4_C") if not df_antes.empty else (None,)*5
     d_ci, _, _, _, _ = stats(df_despues, "Temp_Metal_CojInf_Seg4_C") if not df_despues.empty else (None,)*5
     if a_ci is not None and d_ci is not None:
@@ -171,7 +169,6 @@ def build_conclusiones_subsistemas(df_antes, df_despues):
             txt = "Comportamiento térmico controlado en cojinetes."
         conclusiones.append({"Subsistema": "Cojinetes", "Delta (°C)": delta, "Conclusión": txt})
 
-    # Refrigeración
     a_pres = safe_mean(df_antes, "Pres_Agua_SistRefrig_bar") if not df_antes.empty else None
     d_pres = safe_mean(df_despues, "Pres_Agua_SistRefrig_bar") if not df_despues.empty else None
     if a_pres is not None and d_pres is not None:
@@ -256,6 +253,7 @@ with st.sidebar:
     st.markdown("---")
 
     tema_visual = st.selectbox("Tema visual", ["Claro", "Oscuro"], index=0)
+    modo_movil = st.toggle("Modo móvil", value=False, help="Actívelo si abre el dashboard desde celular o si desea una vista más compacta.")
     theme_cfg = get_theme_config(tema_visual)
 
     mostrar_logo = True
@@ -263,7 +261,7 @@ with st.sidebar:
 
     st.markdown("---")
     st.markdown("**Período de análisis**")
-    periodo_sel = st.radio("", ["ANTES", "DESPUÉS", "AMBOS"], index=2, horizontal=True)
+    periodo_sel = st.radio("", ["ANTES", "DESPUÉS", "AMBOS"], index=2, horizontal=not modo_movil)
 
     st.markdown("---")
     st.markdown("**Meses disponibles**")
@@ -272,7 +270,7 @@ with st.sidebar:
     meses_sel_labels = st.multiselect(
         "Seleccione meses:",
         options=meses_labels_all,
-        default=meses_labels_all
+        default=meses_labels_all[:4] if modo_movil else meses_labels_all
     )
     meses_sel = [m for m, l in zip(meses_ordenados, meses_labels_all) if l in meses_sel_labels]
 
@@ -320,8 +318,15 @@ with st.sidebar:
     activar_comp = st.checkbox("✅ Activar comparación mes a mes", value=False)
 
 # ==============================================================================
-# CSS DINÁMICO SEGÚN TEMA
+# CSS DINÁMICO SEGÚN TEMA / RESPONSIVE
 # ==============================================================================
+font_header = "18px" if modo_movil else "24px"
+font_sub = "12px" if modo_movil else "14px"
+logo_max = "220px" if modo_movil else "100%"
+section_font = "12px" if modo_movil else "13px"
+kpi_value_font = "22px" if modo_movil else "28px"
+kpi_title_font = "11px" if modo_movil else "12px"
+
 st.markdown(f"""
 <style>
     .main {{
@@ -330,7 +335,7 @@ st.markdown(f"""
 
     .header-banner {{
         background: linear-gradient(135deg, {theme_cfg["header_grad_1"]} 0%, {theme_cfg["header_grad_2"]} 45%, {theme_cfg["header_grad_3"]} 100%);
-        padding: 24px 32px;
+        padding: {"16px 18px" if modo_movil else "24px 32px"};
         border-radius: 14px;
         margin-bottom: 18px;
         border-left: 6px solid {theme_cfg["border_left"]};
@@ -339,17 +344,19 @@ st.markdown(f"""
 
     .header-title {{
         color:#ffffff;
-        font-size:24px;
+        font-size:{font_header};
         font-weight:800;
         margin:0;
         font-family:Arial,sans-serif;
+        line-height:1.35;
     }}
 
     .header-sub {{
         color:#c5ced8;
-        font-size:14px;
+        font-size:{font_sub};
         margin:4px 0 0 0;
         font-family:Arial,sans-serif;
+        line-height:1.45;
     }}
 
     .epm-badge {{
@@ -367,7 +374,7 @@ st.markdown(f"""
         color:white;
         padding:9px 16px;
         border-radius:8px;
-        font-size:13px;
+        font-size:{section_font};
         font-weight:bold;
         margin:16px 0 10px 0;
         border-left:5px solid #3a7d3a;
@@ -407,15 +414,16 @@ st.markdown(f"""
     .kpi-card {{
         background: {theme_cfg["bg_card"]};
         border-radius: 14px;
-        padding: 18px 18px;
+        padding: {"14px 14px" if modo_movil else "18px 18px"};
         box-shadow: {theme_cfg["box_shadow"]};
         border-top: 5px solid #3a7d3a;
-        min-height: 122px;
+        min-height: {"105px" if modo_movil else "122px"};
+        margin-bottom: 10px;
     }}
 
     .kpi-title {{
         color: {theme_cfg["text_soft"]};
-        font-size: 12px;
+        font-size: {kpi_title_font};
         font-weight: 700;
         margin-bottom: 8px;
         text-transform: uppercase;
@@ -424,7 +432,7 @@ st.markdown(f"""
 
     .kpi-value {{
         color: {theme_cfg["text_main"]};
-        font-size: 28px;
+        font-size: {kpi_value_font};
         font-weight: 800;
         line-height: 1.08;
         margin-bottom: 6px;
@@ -432,7 +440,7 @@ st.markdown(f"""
 
     .kpi-sub {{
         color: {theme_cfg["text_soft"]};
-        font-size: 12px;
+        font-size: {"11px" if modo_movil else "12px"};
         line-height: 1.35;
     }}
 
@@ -482,37 +490,82 @@ st.markdown(f"""
         font-weight:700;
     }}
 
+    img {{
+        max-width:{logo_max};
+        height:auto;
+    }}
+
     footer {{ visibility:hidden; }}
     #MainMenu {{ visibility:hidden; }}
+
+    @media (max-width: 768px) {{
+        .header-banner {{
+            padding: 14px 14px !important;
+        }}
+        .header-title {{
+            font-size: 17px !important;
+        }}
+        .header-sub {{
+            font-size: 11px !important;
+        }}
+        .kpi-value {{
+            font-size: 21px !important;
+        }}
+        .kpi-title {{
+            font-size: 10px !important;
+        }}
+        .kpi-sub {{
+            font-size: 10px !important;
+        }}
+    }}
 </style>
 """, unsafe_allow_html=True)
 
 # ==============================================================================
 # ENCABEZADO
 # ==============================================================================
-col_header_1, col_header_2 = st.columns([8, 2])
-
-with col_header_1:
+if modo_movil:
     st.markdown("""
     <div class="header-banner">
-        <div style="display:flex;justify-content:space-between;align-items:center;gap:20px;">
-            <div>
-                <p class="header-title">⚡ Dashboard de Confiabilidad Operacional — V3 Ejecutiva</p>
-                <p class="header-sub">Análisis de Impacto — Modernización del Estátor | Unidad de Generación N.° 1</p>
-                <p class="header-sub">Central Hidroeléctrica Playas | Área de Instrumentación, Control y Protección</p>
+        <div>
+            <p class="header-title">⚡ Dashboard de Confiabilidad Operacional — V3 Ejecutiva</p>
+            <p class="header-sub">Análisis de Impacto — Modernización del Estátor | Unidad de Generación N.° 1</p>
+            <p class="header-sub">Central Hidroeléctrica Playas | Área de Instrumentación, Control y Protección</p>
+            <div style="margin-top:10px;">
+                <span class="epm-badge">EPM</span>
             </div>
-            <div style="text-align:right;">
-                <span class="epm-badge">EPM</span><br>
-                <span style="color:#c5ced8;font-size:11px;">SCADA histórico validado</span><br>
-                <span style="color:#c5ced8;font-size:11px;">Mayo 2024 – Enero 2026</span>
-            </div>
+            <p class="header-sub" style="margin-top:10px;">SCADA histórico validado</p>
+            <p class="header-sub">Mayo 2024 – Enero 2026</p>
         </div>
     </div>
     """, unsafe_allow_html=True)
 
-with col_header_2:
     if mostrar_logo and os.path.exists(ruta_logo):
-        st.image(ruta_logo, use_container_width=True)
+        st.image(ruta_logo, width=180)
+else:
+    col_header_1, col_header_2 = st.columns([8, 2])
+
+    with col_header_1:
+        st.markdown("""
+        <div class="header-banner">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:20px;">
+                <div>
+                    <p class="header-title">⚡ Dashboard de Confiabilidad Operacional — V3 Ejecutiva</p>
+                    <p class="header-sub">Análisis de Impacto — Modernización del Estátor | Unidad de Generación N.° 1</p>
+                    <p class="header-sub">Central Hidroeléctrica Playas | Área de Instrumentación, Control y Protección</p>
+                </div>
+                <div style="text-align:right;">
+                    <span class="epm-badge">EPM</span><br>
+                    <span style="color:#c5ced8;font-size:11px;">SCADA histórico validado</span><br>
+                    <span style="color:#c5ced8;font-size:11px;">Mayo 2024 – Enero 2026</span>
+                </div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with col_header_2:
+        if mostrar_logo and os.path.exists(ruta_logo):
+            st.image(ruta_logo, use_container_width=True)
 
 # ==============================================================================
 # APLICAR FILTROS
@@ -572,20 +625,22 @@ with tabs_dict["tab1"]:
     estado_txt, estado_cls = clasificar_estado_temp(d_avg)
     semaforo_global = clasificar_semaforo(delta_dev)
 
-    c1, c2, c3, c4, c5 = st.columns(5)
+    if modo_movil:
+        row1 = st.columns(2)
+        with row1[0]:
+            kpi_card("Temperatura devanado actual", fmt_temp(d_avg), "Promedio filtrado del período DESPUÉS", "#1B7A4E")
+        with row1[1]:
+            subt = f"ANTES {fmt_temp(a_avg)} → DESPUÉS {fmt_temp(d_avg)}" if delta_dev is not None else "Sin base comparativa"
+            kpi_card("Delta térmico global", f"{delta_dev:+.1f}°C" if delta_dev is not None else "—", subt, "#1565C0")
 
-    with c1:
-        kpi_card("Temperatura devanado actual", fmt_temp(d_avg), "Promedio filtrado del período DESPUÉS", "#1B7A4E")
-    with c2:
-        subt = f"ANTES {fmt_temp(a_avg)} → DESPUÉS {fmt_temp(d_avg)}" if delta_dev is not None else "Sin base comparativa"
-        kpi_card("Delta térmico global", f"{delta_dev:+.1f}°C" if delta_dev is not None else "—", subt, "#1565C0")
-    with c3:
-        subt = f"Máximo ANTES {fmt_temp(a_max)} / Máximo DESPUÉS {fmt_temp(d_max)}" if delta_max is not None else "Sin base comparativa"
-        kpi_card("Cambio en máximos", f"{delta_max:+.1f}°C" if delta_max is not None else "—", subt, "#E65100")
-    with c4:
-        subt = f"σ ANTES ±{fmt_num(a_std)} / σ DESPUÉS ±{fmt_num(d_std)}" if delta_std is not None else "Sin base comparativa"
-        kpi_card("Estabilidad térmica", f"±{fmt_num(d_std)}°C" if d_std is not None else "—", subt, "#6A1B9A")
-    with c5:
+        row2 = st.columns(2)
+        with row2[0]:
+            subt = f"Máximo ANTES {fmt_temp(a_max)} / Máximo DESPUÉS {fmt_temp(d_max)}" if delta_max is not None else "Sin base comparativa"
+            kpi_card("Cambio en máximos", f"{delta_max:+.1f}°C" if delta_max is not None else "—", subt, "#E65100")
+        with row2[1]:
+            subt = f"σ ANTES ±{fmt_num(a_std)} / σ DESPUÉS ±{fmt_num(d_std)}" if delta_std is not None else "Sin base comparativa"
+            kpi_card("Estabilidad térmica", f"±{fmt_num(d_std)}°C" if d_std is not None else "—", subt, "#6A1B9A")
+
         st.markdown(f"""
         <div class="kpi-card" style="border-top:5px solid #C00000;">
             <div class="kpi-title">Condición operacional</div>
@@ -594,23 +649,54 @@ with tabs_dict["tab1"]:
             <div class="kpi-sub" style="margin-top:8px;">{semaforo_global}</div>
         </div>
         """, unsafe_allow_html=True)
+    else:
+        c1, c2, c3, c4, c5 = st.columns(5)
+
+        with c1:
+            kpi_card("Temperatura devanado actual", fmt_temp(d_avg), "Promedio filtrado del período DESPUÉS", "#1B7A4E")
+        with c2:
+            subt = f"ANTES {fmt_temp(a_avg)} → DESPUÉS {fmt_temp(d_avg)}" if delta_dev is not None else "Sin base comparativa"
+            kpi_card("Delta térmico global", f"{delta_dev:+.1f}°C" if delta_dev is not None else "—", subt, "#1565C0")
+        with c3:
+            subt = f"Máximo ANTES {fmt_temp(a_max)} / Máximo DESPUÉS {fmt_temp(d_max)}" if delta_max is not None else "Sin base comparativa"
+            kpi_card("Cambio en máximos", f"{delta_max:+.1f}°C" if delta_max is not None else "—", subt, "#E65100")
+        with c4:
+            subt = f"σ ANTES ±{fmt_num(a_std)} / σ DESPUÉS ±{fmt_num(d_std)}" if delta_std is not None else "Sin base comparativa"
+            kpi_card("Estabilidad térmica", f"±{fmt_num(d_std)}°C" if d_std is not None else "—", subt, "#6A1B9A")
+        with c5:
+            st.markdown(f"""
+            <div class="kpi-card" style="border-top:5px solid #C00000;">
+                <div class="kpi-title">Condición operacional</div>
+                <div class="kpi-value" style="font-size:24px;">{estado_txt}</div>
+                <div class="{estado_cls}" style="margin-top:8px;">Evaluación automática</div>
+                <div class="kpi-sub" style="margin-top:8px;">{semaforo_global}</div>
+            </div>
+            """, unsafe_allow_html=True)
 
     st.markdown("---")
-    c1, c2, c3, c4 = st.columns(4)
-    with c1:
-        st.metric("📊 Registros ANTES", f"{len(df_antes):,}")
-    with c2:
-        st.metric("📊 Registros DESPUÉS", f"{len(df_despues):,}")
-    with c3:
-        st.metric("📊 Total Registros", f"{len(df_f):,}")
-    with c4:
-        st.metric("⚙️ Potencia mínima aplicada", f"{pot_min} MW")
+
+    if modo_movil:
+        c1, c2 = st.columns(2)
+        with c1:
+            st.metric("📊 Registros ANTES", f"{len(df_antes):,}")
+            st.metric("📊 Total Registros", f"{len(df_f):,}")
+        with c2:
+            st.metric("📊 Registros DESPUÉS", f"{len(df_despues):,}")
+            st.metric("⚙️ Potencia mínima", f"{pot_min} MW")
+    else:
+        c1, c2, c3, c4 = st.columns(4)
+        with c1:
+            st.metric("📊 Registros ANTES", f"{len(df_antes):,}")
+        with c2:
+            st.metric("📊 Registros DESPUÉS", f"{len(df_despues):,}")
+        with c3:
+            st.metric("📊 Total Registros", f"{len(df_f):,}")
+        with c4:
+            st.metric("⚙️ Potencia mínima aplicada", f"{pot_min} MW")
 
     st.markdown('<div class="seccion-titulo">🧠 INTERPRETACIÓN AUTOMÁTICA</div>', unsafe_allow_html=True)
 
-    col_i1, col_i2 = st.columns(2)
-
-    with col_i1:
+    if modo_movil:
         if delta_dev is not None:
             if delta_dev <= -10:
                 insight_box(
@@ -631,7 +717,6 @@ with tabs_dict["tab1"]:
                     "#C00000"
                 )
 
-    with col_i2:
         if coj_inf_a is not None and coj_inf_d is not None:
             delta_coj_inf = round(coj_inf_d - coj_inf_a, 1)
             if delta_coj_inf > 3:
@@ -646,6 +731,45 @@ with tabs_dict["tab1"]:
                     "No se detecta un incremento severo en el cojinete inferior dentro del filtro actual. El comportamiento luce controlado bajo las condiciones seleccionadas.",
                     "#E65100"
                 )
+    else:
+        col_i1, col_i2 = st.columns(2)
+
+        with col_i1:
+            if delta_dev is not None:
+                if delta_dev <= -10:
+                    insight_box(
+                        "Hallazgo principal",
+                        "La modernización del estátor muestra una <b>mejora térmica robusta</b>, con reducción sostenida en la temperatura promedio del devanado bajo condiciones comparables de carga.",
+                        "#1B7A4E"
+                    )
+                elif delta_dev < 0:
+                    insight_box(
+                        "Hallazgo principal",
+                        "Se observa una <b>mejora térmica moderada</b> posterior a la intervención. El efecto es favorable, aunque menos contundente.",
+                        "#1565C0"
+                    )
+                else:
+                    insight_box(
+                        "Hallazgo principal",
+                        "Se observa un <b>incremento térmico</b> posterior al cambio. Conviene revisar comparabilidad operativa, ventilación y comportamiento del sistema de enfriamiento.",
+                        "#C00000"
+                    )
+
+        with col_i2:
+            if coj_inf_a is not None and coj_inf_d is not None:
+                delta_coj_inf = round(coj_inf_d - coj_inf_a, 1)
+                if delta_coj_inf > 3:
+                    insight_box(
+                        "Punto de atención",
+                        f"El cojinete inferior presenta una variación de <b>{delta_coj_inf:+.1f}°C</b> respecto al período ANTES. Este subsistema merece seguimiento específico en lubricación, flujo de refrigeración y tendencia mensual.",
+                        "#C00000"
+                    )
+                else:
+                    insight_box(
+                        "Punto de atención",
+                        "No se detecta un incremento severo en el cojinete inferior dentro del filtro actual. El comportamiento luce controlado bajo las condiciones seleccionadas.",
+                        "#E65100"
+                    )
 
     st.markdown('<div class="seccion-titulo">📌 CONCLUSIONES AUTOMÁTICAS POR SUBSISTEMA</div>', unsafe_allow_html=True)
     df_conclusiones = build_conclusiones_subsistemas(df_antes, df_despues)
@@ -693,163 +817,178 @@ with tabs_dict["tab1"]:
     )
     st.plotly_chart(fig, use_container_width=True)
 
-    st.markdown('<div class="seccion-titulo">🔥 MATRIZ TÉRMICA MENSUAL</div>', unsafe_allow_html=True)
+    with st.expander("🔥 Ver matriz térmica mensual", expanded=not modo_movil):
+        st.markdown('<div class="seccion-titulo">🔥 MATRIZ TÉRMICA MENSUAL</div>', unsafe_allow_html=True)
 
-    heat_vars = {
-        "Dev A3": "Temp_Dev_EstatorA3_C",
-        "Dev B2": "Temp_Dev_EstatorB2_C",
-        "Dev C1": "Temp_Dev_EstatorC1_C",
-        "Núcleo": "Temp_Nucleo_Estator2_C",
-        "Coj. Sup.": "Temp_Metal_CojSup_Seg07_C",
-        "Coj. Inf.": "Temp_Metal_CojInf_Seg4_C",
-        "Coj. Turb.": "Temp_Metal_CojTurbina_C",
-        "Coj. Emp.": "Temp_Metal_CojEmp_Seg3_C"
-    }
-
-    heat_rows = []
-    for nom, col in heat_vars.items():
-        if col in df_f.columns:
-            tmp = (
-                df_f.groupby(["Mes_Num", "Mes_Label"])[col]
-                .mean()
-                .reset_index()
-                .rename(columns={col: "Valor"})
-                .sort_values("Mes_Num")
-            )
-            tmp["Variable"] = nom
-            heat_rows.append(tmp)
-
-    if heat_rows:
-        df_heat = pd.concat(heat_rows, ignore_index=True)
-        meses_orden_heat = (
-            df_heat[["Mes_Num", "Mes_Label"]]
-            .drop_duplicates()
-            .sort_values("Mes_Num")["Mes_Label"]
-            .tolist()
-        )
-        heat_pivot = df_heat.pivot(index="Variable", columns="Mes_Label", values="Valor")
-        heat_pivot = heat_pivot.reindex(columns=meses_orden_heat)
-
-        fig_heat = go.Figure(data=go.Heatmap(
-            z=heat_pivot.values,
-            x=list(heat_pivot.columns),
-            y=list(heat_pivot.index),
-            colorscale="RdYlGn_r",
-            colorbar=dict(title="°C"),
-            hovertemplate="Variable: %{y}<br>Mes: %{x}<br>Temp: %{z:.1f}°C<extra></extra>"
-        ))
-        fig_heat.update_layout(
-            title="Mapa térmico mensual de variables críticas",
-            plot_bgcolor=theme_cfg["plot_bg"],
-            paper_bgcolor=theme_cfg["paper_bg"],
-            height=430
-        )
-        st.plotly_chart(fig_heat, use_container_width=True)
-
-    st.markdown('<div class="seccion-titulo">📋 RESUMEN COMPARATIVO POR VARIABLE</div>', unsafe_allow_html=True)
-
-    vars_res = [
-        ("Temp_Nucleo_Estator2_C",   "Núcleo Estátor (°C)"),
-        ("Temp_Dev_EstatorA3_C",     "Devanado Fase A3 (°C)"),
-        ("Temp_Dev_EstatorB2_C",     "Devanado Fase B2 (°C)"),
-        ("Temp_Dev_EstatorC1_C",     "Devanado Fase C1 (°C)"),
-        ("Temp_Metal_CojSup_Seg07_C","Metal Coj. Superior (°C)"),
-        ("Temp_Metal_CojInf_Seg4_C", "Metal Coj. Inferior (°C)"),
-        ("Temp_Metal_CojTurbina_C",  "Metal Coj. Turbina (°C)"),
-        ("Temp_Metal_CojEmp_Seg3_C", "Metal Coj. Empuje (°C)"),
-        ("Potencia_Activa_MW",       "Potencia Activa (MW)"),
-    ]
-
-    rows = []
-    for cv, nom in vars_res:
-        aa, _, am, _, ap = stats(df_antes, cv) if not df_antes.empty else (None, None, None, None, None)
-        da, _, dm, _, dp = stats(df_despues, cv) if not df_despues.empty else (None, None, None, None, None)
-
-        if aa is not None and da is not None:
-            dlt = round(da - aa, 1)
-            pct = round((dlt / aa) * 100, 1) if aa != 0 else 0
-            rows.append({
-                "Variable": nom,
-                "Prom ANTES": aa,
-                "Máx ANTES": am,
-                "P95 ANTES": ap,
-                "Prom DESPUÉS": da,
-                "Máx DESPUÉS": dm,
-                "P95 DESPUÉS": dp,
-                "Δ Prom": dlt,
-                "Mejora %": pct
-            })
-
-    df_res = pd.DataFrame(rows) if rows else pd.DataFrame()
-
-    if not df_res.empty:
-        fmt = {
-            "Prom ANTES": "{:.1f}",
-            "Máx ANTES": "{:.1f}",
-            "P95 ANTES": "{:.1f}",
-            "Prom DESPUÉS": "{:.1f}",
-            "Máx DESPUÉS": "{:.1f}",
-            "P95 DESPUÉS": "{:.1f}",
-            "Δ Prom": "{:.1f}",
-            "Mejora %": "{:.1f}"
+        heat_vars = {
+            "Dev A3": "Temp_Dev_EstatorA3_C",
+            "Dev B2": "Temp_Dev_EstatorB2_C",
+            "Dev C1": "Temp_Dev_EstatorC1_C",
+            "Núcleo": "Temp_Nucleo_Estator2_C",
+            "Coj. Sup.": "Temp_Metal_CojSup_Seg07_C",
+            "Coj. Inf.": "Temp_Metal_CojInf_Seg4_C",
+            "Coj. Turb.": "Temp_Metal_CojTurbina_C",
+            "Coj. Emp.": "Temp_Metal_CojEmp_Seg3_C"
         }
 
-        def color_delta(val):
-            try:
-                v = float(val)
-                if v < -1:
-                    return "background-color:#E8F5E9;color:#1B7A4E;font-weight:bold"
-                elif v > 1:
-                    return "background-color:#FFEBEE;color:#C00000;font-weight:bold"
-            except:
-                pass
-            return ""
+        heat_rows = []
+        for nom, col in heat_vars.items():
+            if col in df_f.columns:
+                tmp = (
+                    df_f.groupby(["Mes_Num", "Mes_Label"])[col]
+                    .mean()
+                    .reset_index()
+                    .rename(columns={col: "Valor"})
+                    .sort_values("Mes_Num")
+                )
+                tmp["Variable"] = nom
+                heat_rows.append(tmp)
 
-        st.dataframe(
-            df_res.style.format(fmt).applymap(color_delta, subset=["Δ Prom", "Mejora %"]),
-            use_container_width=True,
-            hide_index=True,
-            height=380
-        )
+        if heat_rows:
+            df_heat = pd.concat(heat_rows, ignore_index=True)
+            meses_orden_heat = (
+                df_heat[["Mes_Num", "Mes_Label"]]
+                .drop_duplicates()
+                .sort_values("Mes_Num")["Mes_Label"]
+                .tolist()
+            )
+            heat_pivot = df_heat.pivot(index="Variable", columns="Mes_Label", values="Valor")
+            heat_pivot = heat_pivot.reindex(columns=meses_orden_heat)
 
-    st.markdown('<div class="seccion-titulo">🏆 RANKING DE IMPACTO TÉRMICO</div>', unsafe_allow_html=True)
+            fig_heat = go.Figure(data=go.Heatmap(
+                z=heat_pivot.values,
+                x=list(heat_pivot.columns),
+                y=list(heat_pivot.index),
+                colorscale="RdYlGn_r",
+                colorbar=dict(title="°C"),
+                hovertemplate="Variable: %{y}<br>Mes: %{x}<br>Temp: %{z:.1f}°C<extra></extra>"
+            ))
+            fig_heat.update_layout(
+                title="Mapa térmico mensual de variables críticas",
+                plot_bgcolor=theme_cfg["plot_bg"],
+                paper_bgcolor=theme_cfg["paper_bg"],
+                height=430
+            )
+            st.plotly_chart(fig_heat, use_container_width=True)
 
-    ranking = []
-    for cv, nom in vars_res:
-        aa, _, _, _, _ = stats(df_antes, cv) if not df_antes.empty else (None, None, None, None, None)
-        da, _, _, _, _ = stats(df_despues, cv) if not df_despues.empty else (None, None, None, None, None)
-        if aa is not None and da is not None:
-            ranking.append({"Variable": nom, "Delta": round(da - aa, 1)})
+    with st.expander("📋 Ver resumen comparativo por variable", expanded=not modo_movil):
+        st.markdown('<div class="seccion-titulo">📋 RESUMEN COMPARATIVO POR VARIABLE</div>', unsafe_allow_html=True)
 
-    df_rank = pd.DataFrame(ranking).sort_values("Delta", ascending=True) if ranking else pd.DataFrame()
+        vars_res = [
+            ("Temp_Nucleo_Estator2_C",   "Núcleo Estátor (°C)"),
+            ("Temp_Dev_EstatorA3_C",     "Devanado Fase A3 (°C)"),
+            ("Temp_Dev_EstatorB2_C",     "Devanado Fase B2 (°C)"),
+            ("Temp_Dev_EstatorC1_C",     "Devanado Fase C1 (°C)"),
+            ("Temp_Metal_CojSup_Seg07_C","Metal Coj. Superior (°C)"),
+            ("Temp_Metal_CojInf_Seg4_C", "Metal Coj. Inferior (°C)"),
+            ("Temp_Metal_CojTurbina_C",  "Metal Coj. Turbina (°C)"),
+            ("Temp_Metal_CojEmp_Seg3_C", "Metal Coj. Empuje (°C)"),
+            ("Potencia_Activa_MW",       "Potencia Activa (MW)"),
+        ]
 
-    if not df_rank.empty:
-        fig_rank = px.bar(
-            df_rank,
-            x="Delta",
-            y="Variable",
-            orientation="h",
-            text="Delta",
-            title="Variación térmica por variable (DESPUÉS − ANTES)"
-        )
-        fig_rank.update_traces(
-            texttemplate="%{text:+.1f}°C",
-            textposition="outside",
-            marker_color=[
-                "#1B7A4E" if v < -1 else "#C00000" if v > 1 else "#E65100"
-                for v in df_rank["Delta"]
-            ],
-            hovertemplate="Variable: %{y}<br>Delta: %{x:+.1f}°C<extra></extra>"
-        )
-        fig_rank.add_vline(x=0, line_dash="dash", line_color="black")
-        fig_rank.update_layout(
-            plot_bgcolor=theme_cfg["plot_bg"],
-            paper_bgcolor=theme_cfg["paper_bg"],
-            xaxis_title="Delta térmico (°C)",
-            yaxis_title="",
-            height=430
-        )
-        st.plotly_chart(fig_rank, use_container_width=True)
+        rows = []
+        for cv, nom in vars_res:
+            aa, _, am, _, ap = stats(df_antes, cv) if not df_antes.empty else (None, None, None, None, None)
+            da, _, dm, _, dp = stats(df_despues, cv) if not df_despues.empty else (None, None, None, None, None)
+
+            if aa is not None and da is not None:
+                dlt = round(da - aa, 1)
+                pct = round((dlt / aa) * 100, 1) if aa != 0 else 0
+                rows.append({
+                    "Variable": nom,
+                    "Prom ANTES": aa,
+                    "Máx ANTES": am,
+                    "P95 ANTES": ap,
+                    "Prom DESPUÉS": da,
+                    "Máx DESPUÉS": dm,
+                    "P95 DESPUÉS": dp,
+                    "Δ Prom": dlt,
+                    "Mejora %": pct
+                })
+
+        df_res = pd.DataFrame(rows) if rows else pd.DataFrame()
+
+        if not df_res.empty:
+            fmt = {
+                "Prom ANTES": "{:.1f}",
+                "Máx ANTES": "{:.1f}",
+                "P95 ANTES": "{:.1f}",
+                "Prom DESPUÉS": "{:.1f}",
+                "Máx DESPUÉS": "{:.1f}",
+                "P95 DESPUÉS": "{:.1f}",
+                "Δ Prom": "{:.1f}",
+                "Mejora %": "{:.1f}"
+            }
+
+            def color_delta(val):
+                try:
+                    v = float(val)
+                    if v < -1:
+                        return "background-color:#E8F5E9;color:#1B7A4E;font-weight:bold"
+                    elif v > 1:
+                        return "background-color:#FFEBEE;color:#C00000;font-weight:bold"
+                except:
+                    pass
+                return ""
+
+            st.dataframe(
+                df_res.style.format(fmt).applymap(color_delta, subset=["Δ Prom", "Mejora %"]),
+                use_container_width=True,
+                hide_index=True,
+                height=380
+            )
+        else:
+            df_res = pd.DataFrame()
+
+    with st.expander("🏆 Ver ranking de impacto térmico", expanded=not modo_movil):
+        st.markdown('<div class="seccion-titulo">🏆 RANKING DE IMPACTO TÉRMICO</div>', unsafe_allow_html=True)
+
+        ranking = []
+        for cv, nom in [
+            ("Temp_Nucleo_Estator2_C",   "Núcleo Estátor (°C)"),
+            ("Temp_Dev_EstatorA3_C",     "Devanado Fase A3 (°C)"),
+            ("Temp_Dev_EstatorB2_C",     "Devanado Fase B2 (°C)"),
+            ("Temp_Dev_EstatorC1_C",     "Devanado Fase C1 (°C)"),
+            ("Temp_Metal_CojSup_Seg07_C","Metal Coj. Superior (°C)"),
+            ("Temp_Metal_CojInf_Seg4_C", "Metal Coj. Inferior (°C)"),
+            ("Temp_Metal_CojTurbina_C",  "Metal Coj. Turbina (°C)"),
+            ("Temp_Metal_CojEmp_Seg3_C", "Metal Coj. Empuje (°C)"),
+            ("Potencia_Activa_MW",       "Potencia Activa (MW)")
+        ]:
+            aa, _, _, _, _ = stats(df_antes, cv) if not df_antes.empty else (None, None, None, None, None)
+            da, _, _, _, _ = stats(df_despues, cv) if not df_despues.empty else (None, None, None, None, None)
+            if aa is not None and da is not None:
+                ranking.append({"Variable": nom, "Delta": round(da - aa, 1)})
+
+        df_rank = pd.DataFrame(ranking).sort_values("Delta", ascending=True) if ranking else pd.DataFrame()
+
+        if not df_rank.empty:
+            fig_rank = px.bar(
+                df_rank,
+                x="Delta",
+                y="Variable",
+                orientation="h",
+                text="Delta",
+                title="Variación térmica por variable (DESPUÉS − ANTES)"
+            )
+            fig_rank.update_traces(
+                texttemplate="%{text:+.1f}°C",
+                textposition="outside",
+                marker_color=[
+                    "#1B7A4E" if v < -1 else "#C00000" if v > 1 else "#E65100"
+                    for v in df_rank["Delta"]
+                ],
+                hovertemplate="Variable: %{y}<br>Delta: %{x:+.1f}°C<extra></extra>"
+            )
+            fig_rank.add_vline(x=0, line_dash="dash", line_color="black")
+            fig_rank.update_layout(
+                plot_bgcolor=theme_cfg["plot_bg"],
+                paper_bgcolor=theme_cfg["paper_bg"],
+                xaxis_title="Delta térmico (°C)",
+                yaxis_title="",
+                height=430
+            )
+            st.plotly_chart(fig_rank, use_container_width=True)
 
     if activar_comp:
         st.markdown("---")
@@ -883,16 +1022,30 @@ with tabs_dict["tab1"]:
                 ("Temp_Metal_CojInf_Seg4_C", "Coj. Inferior")
             ]
 
-            c1, c2, c3, c4 = st.columns(4)
-            for cw, (cv, nom) in zip([c1, c2, c3, c4], kpi_v):
-                va = safe_mean(df_ma, cv)
-                vd = safe_mean(df_md, cv)
-                with cw:
-                    if va is not None and vd is not None:
-                        d = round(vd - va, 1)
-                        st.metric(nom, f"{vd:.1f}°C", delta=f"{d:+.1f}°C  (era {va:.1f}°C)", delta_color="inverse")
-                    else:
-                        st.metric(nom, "—")
+            if modo_movil:
+                row1 = st.columns(2)
+                row2 = st.columns(2)
+                all_cols = [row1[0], row1[1], row2[0], row2[1]]
+                for cw, (cv, nom) in zip(all_cols, kpi_v):
+                    va = safe_mean(df_ma, cv)
+                    vd = safe_mean(df_md, cv)
+                    with cw:
+                        if va is not None and vd is not None:
+                            d = round(vd - va, 1)
+                            st.metric(nom, f"{vd:.1f}°C", delta=f"{d:+.1f}°C")
+                        else:
+                            st.metric(nom, "—")
+            else:
+                c1, c2, c3, c4 = st.columns(4)
+                for cw, (cv, nom) in zip([c1, c2, c3, c4], kpi_v):
+                    va = safe_mean(df_ma, cv)
+                    vd = safe_mean(df_md, cv)
+                    with cw:
+                        if va is not None and vd is not None:
+                            d = round(vd - va, 1)
+                            st.metric(nom, f"{vd:.1f}°C", delta=f"{d:+.1f}°C  (era {va:.1f}°C)", delta_color="inverse")
+                        else:
+                            st.metric(nom, "—")
 
             gv = [
                 ("Temp_Dev_EstatorA3_C", "Dev. A3"),
@@ -1005,7 +1158,7 @@ with tabs_dict["tab1"]:
 
     st.markdown('<div class="seccion-titulo">⬇️ EXPORTACIÓN</div>', unsafe_allow_html=True)
 
-    export_resumen = df_res.copy() if not df_res.empty else pd.DataFrame()
+    export_resumen = df_res.copy() if 'df_res' in locals() and not df_res.empty else pd.DataFrame()
     export_conclusiones = df_conclusiones.copy() if not df_conclusiones.empty else pd.DataFrame()
     export_datos = df_f.copy()
 
@@ -1015,22 +1168,39 @@ with tabs_dict["tab1"]:
         "Datos_Filtrados": export_datos
     })
 
-    col_exp1, col_exp2 = st.columns(2)
-    with col_exp1:
+    if modo_movil:
         st.download_button(
             "📥 Descargar Excel completo",
             data=excel_bytes,
-            file_name="dashboard_confiabilidad_u1_v3.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            file_name="dashboard_confiabilidad_u1_v4.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True
         )
-    with col_exp2:
         csv_bytes = export_resumen.to_csv(index=False).encode("utf-8") if not export_resumen.empty else b""
         st.download_button(
-            "📥 Descargar resumen comparativo CSV",
+            "📥 Descargar resumen CSV",
             data=csv_bytes,
             file_name="resumen_comparativo_u1.csv",
-            mime="text/csv"
+            mime="text/csv",
+            use_container_width=True
         )
+    else:
+        col_exp1, col_exp2 = st.columns(2)
+        with col_exp1:
+            st.download_button(
+                "📥 Descargar Excel completo",
+                data=excel_bytes,
+                file_name="dashboard_confiabilidad_u1_v4.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+        with col_exp2:
+            csv_bytes = export_resumen.to_csv(index=False).encode("utf-8") if not export_resumen.empty else b""
+            st.download_button(
+                "📥 Descargar resumen comparativo CSV",
+                data=csv_bytes,
+                file_name="resumen_comparativo_u1.csv",
+                mime="text/csv"
+            )
 
 # ==============================================================================
 # TAB 2 — ESTÁTOR Y DEVANADO
@@ -1039,9 +1209,7 @@ if "tab2" in tabs_dict:
     with tabs_dict["tab2"]:
         st.markdown('<div class="seccion-titulo">🌡️ ESTÁTOR Y DEVANADO DEL GENERADOR</div>', unsafe_allow_html=True)
 
-        c1, c2 = st.columns(2)
-
-        with c1:
+        if modo_movil:
             st.markdown("#### Distribución por fase")
             rows_b = []
             for cf, nf in [
@@ -1075,7 +1243,6 @@ if "tab2" in tabs_dict:
                 )
                 st.plotly_chart(fig_b, use_container_width=True)
 
-        with c2:
             st.markdown("#### Núcleo — Tendencia mensual")
             df_nuc = (
                 df_f.groupby(["Mes_Num", "Mes_Label", "Periodo"])
@@ -1109,6 +1276,78 @@ if "tab2" in tabs_dict:
                 height=390
             )
             st.plotly_chart(fig_n, use_container_width=True)
+
+        else:
+            c1, c2 = st.columns(2)
+
+            with c1:
+                st.markdown("#### Distribución por fase")
+                rows_b = []
+                for cf, nf in [
+                    ("Temp_Dev_EstatorA3_C", "Fase A3"),
+                    ("Temp_Dev_EstatorB2_C", "Fase B2"),
+                    ("Temp_Dev_EstatorC1_C", "Fase C1")
+                ]:
+                    if cf in df_antes.columns:
+                        for v in df_antes[cf].dropna():
+                            rows_b.append({"Fase": nf, "Temp": round(v, 1), "Período": "ANTES"})
+                    if cf in df_despues.columns:
+                        for v in df_despues[cf].dropna():
+                            rows_b.append({"Fase": nf, "Temp": round(v, 1), "Período": "DESPUÉS"})
+
+                if rows_b:
+                    fig_b = px.box(
+                        pd.DataFrame(rows_b),
+                        x="Fase",
+                        y="Temp",
+                        color="Período",
+                        color_discrete_map={"ANTES": C_ANTES, "DESPUÉS": C_DESPUES},
+                        title="Distribución de temperatura por fase",
+                        labels={"Temp": "Temperatura (°C)"}
+                    )
+                    fig_b.add_hline(y=80, line_dash="dash", line_color=C_ALERTA, annotation_text="Umbral 80°C")
+                    fig_b.update_layout(
+                        plot_bgcolor=theme_cfg["plot_bg"],
+                        paper_bgcolor=theme_cfg["paper_bg"],
+                        legend=dict(orientation="h", y=1.12),
+                        height=390
+                    )
+                    st.plotly_chart(fig_b, use_container_width=True)
+
+            with c2:
+                st.markdown("#### Núcleo — Tendencia mensual")
+                df_nuc = (
+                    df_f.groupby(["Mes_Num", "Mes_Label", "Periodo"])
+                    .agg(Nucleo=("Temp_Nucleo_Estator2_C", "mean"))
+                    .reset_index()
+                    .sort_values("Mes_Num")
+                )
+                df_nuc["Nucleo"] = df_nuc["Nucleo"].round(1)
+
+                fig_n = go.Figure()
+                for p, c in [("ANTES", C_ANTES), ("DESPUÉS", C_DESPUES)]:
+                    d = df_nuc[df_nuc["Periodo"] == p]
+                    if not d.empty:
+                        fig_n.add_trace(go.Scatter(
+                            x=d["Mes_Label"], y=d["Nucleo"],
+                            mode="lines+markers+text",
+                            name=f"Núcleo {p}",
+                            line=dict(color=c, width=3),
+                            marker=dict(size=8),
+                            text=d["Nucleo"],
+                            textposition="top center"
+                        ))
+                fig_n.add_hline(y=85, line_dash="dash", line_color=C_ALERTA, annotation_text="Umbral 85°C")
+                fig_n.update_layout(
+                    title="Temperatura mensual del núcleo del estátor",
+                    xaxis_title="Mes",
+                    yaxis=dict(title="Temperatura (°C)", range=[55, 100]),
+                    plot_bgcolor=theme_cfg["plot_bg"],
+                    paper_bgcolor=theme_cfg["paper_bg"],
+                    legend=dict(orientation="h", y=1.12),
+                    height=390
+                )
+                st.plotly_chart(fig_n, use_container_width=True)
 
 # ==============================================================================
 # TAB 3 — COJINETES
@@ -1177,9 +1416,8 @@ if "tab4" in tabs_dict:
         for c in ["AceiteTF", "PresRef"]:
             df_ref[c] = df_ref[c].round(1)
 
-        c1, c2 = st.columns(2)
-
-        with c1:
+        if modo_movil:
+            st.markdown("#### Temperatura de aceite del transformador")
             fig_a = go.Figure()
             for p, c in [("ANTES", C_ANTES), ("DESPUÉS", C_DESPUES)]:
                 d = df_ref[df_ref["Periodo"] == p]
@@ -1203,7 +1441,7 @@ if "tab4" in tabs_dict:
             )
             st.plotly_chart(fig_a, use_container_width=True)
 
-        with c2:
+            st.markdown("#### Presión de agua del sistema de refrigeración")
             fig_p = go.Figure()
             for p, c in [("ANTES", C_ANTES), ("DESPUÉS", C_DESPUES)]:
                 d = df_ref[df_ref["Periodo"] == p]
@@ -1226,6 +1464,56 @@ if "tab4" in tabs_dict:
                 height=370
             )
             st.plotly_chart(fig_p, use_container_width=True)
+        else:
+            c1, c2 = st.columns(2)
+
+            with c1:
+                fig_a = go.Figure()
+                for p, c in [("ANTES", C_ANTES), ("DESPUÉS", C_DESPUES)]:
+                    d = df_ref[df_ref["Periodo"] == p]
+                    if not d.empty:
+                        fig_a.add_trace(go.Scatter(
+                            x=d["Mes_Label"], y=d["AceiteTF"],
+                            mode="lines+markers",
+                            name=f"Aceite {p}",
+                            line=dict(color=c, width=2.5),
+                            marker=dict(size=7),
+                            hovertemplate="Mes: %{x}<br>Temp: %{y:.1f}°C<extra></extra>"
+                        ))
+                fig_a.update_layout(
+                    title="Temperatura de aceite del transformador",
+                    xaxis_title="Mes",
+                    yaxis_title="Temperatura (°C)",
+                    plot_bgcolor=theme_cfg["plot_bg"],
+                    paper_bgcolor=theme_cfg["paper_bg"],
+                    legend=dict(orientation="h", y=1.12),
+                    height=370
+                )
+                st.plotly_chart(fig_a, use_container_width=True)
+
+            with c2:
+                fig_p = go.Figure()
+                for p, c in [("ANTES", C_ANTES), ("DESPUÉS", C_DESPUES)]:
+                    d = df_ref[df_ref["Periodo"] == p]
+                    if not d.empty:
+                        fig_p.add_trace(go.Scatter(
+                            x=d["Mes_Label"], y=d["PresRef"],
+                            mode="lines+markers",
+                            name=f"Presión {p}",
+                            line=dict(color=c, width=2.5),
+                            marker=dict(size=7),
+                            hovertemplate="Mes: %{x}<br>Presión: %{y:.1f} bar<extra></extra>"
+                        ))
+                fig_p.update_layout(
+                    title="Presión de agua del sistema de refrigeración",
+                    xaxis_title="Mes",
+                    yaxis=dict(title="Presión (bar)", range=[2.5, 4.5]),
+                    plot_bgcolor=theme_cfg["plot_bg"],
+                    paper_bgcolor=theme_cfg["paper_bg"],
+                    legend=dict(orientation="h", y=1.12),
+                    height=370
+                )
+                st.plotly_chart(fig_p, use_container_width=True)
 
 # ==============================================================================
 # TAB 5 — DATOS Y ESTADÍSTICAS
@@ -1245,19 +1533,31 @@ with tabs_dict["tab5"]:
         "Potencia_Activa_MW"
     ]
 
-    c1, c2 = st.columns(2)
-    with c1:
-        st.markdown("##### PERÍODO ANTES")
-        if not df_antes.empty:
-            st.dataframe(df_antes[cols_show].describe().round(1), use_container_width=True, height=300)
-        else:
-            st.info("Sin datos ANTES.")
-    with c2:
-        st.markdown("##### PERÍODO DESPUÉS")
-        if not df_despues.empty:
-            st.dataframe(df_despues[cols_show].describe().round(1), use_container_width=True, height=300)
-        else:
-            st.info("Sin datos DESPUÉS.")
+    if modo_movil:
+        with st.expander("##### PERÍODO ANTES", expanded=False):
+            if not df_antes.empty:
+                st.dataframe(df_antes[cols_show].describe().round(1), use_container_width=True, height=300)
+            else:
+                st.info("Sin datos ANTES.")
+        with st.expander("##### PERÍODO DESPUÉS", expanded=False):
+            if not df_despues.empty:
+                st.dataframe(df_despues[cols_show].describe().round(1), use_container_width=True, height=300)
+            else:
+                st.info("Sin datos DESPUÉS.")
+    else:
+        c1, c2 = st.columns(2)
+        with c1:
+            st.markdown("##### PERÍODO ANTES")
+            if not df_antes.empty:
+                st.dataframe(df_antes[cols_show].describe().round(1), use_container_width=True, height=300)
+            else:
+                st.info("Sin datos ANTES.")
+        with c2:
+            st.markdown("##### PERÍODO DESPUÉS")
+            if not df_despues.empty:
+                st.dataframe(df_despues[cols_show].describe().round(1), use_container_width=True, height=300)
+            else:
+                st.info("Sin datos DESPUÉS.")
 
     st.markdown("---")
     st.markdown('<div class="seccion-titulo">🗂️ DATOS CRUDOS FILTRADOS</div>', unsafe_allow_html=True)
@@ -1279,43 +1579,43 @@ with tabs_dict["tab5"]:
         st.dataframe(df_show.reset_index(drop=True), use_container_width=True, height=420)
         st.caption(f"Total registros filtrados: {len(df_f):,}")
 
-    st.markdown("---")
-    st.markdown('<div class="seccion-titulo">📖 GLOSARIO TÉCNICO</div>', unsafe_allow_html=True)
+    with st.expander("📖 Ver glosario técnico", expanded=not modo_movil):
+        st.markdown('<div class="seccion-titulo">📖 GLOSARIO TÉCNICO</div>', unsafe_allow_html=True)
 
-    glos = pd.DataFrame({
-        "Término": [
-            "P95 (Percentil 95)",
-            "Desv. Estándar (σ)",
-            "Delta (Δ)",
-            "Potencia Activa",
-            "ANTES",
-            "DESPUÉS",
-            "Devanado",
-            "Núcleo Estátor",
-            "Cojinete"
-        ],
-        "Definición": [
-            "Temperatura superada solo el 5% del tiempo; indicador de condición sostenida real.",
-            "Medida de variabilidad; menor σ implica mayor estabilidad térmica.",
-            "Diferencia DESPUÉS − ANTES; valor negativo suele indicar mejora térmica.",
-            "Energía eléctrica activa generada en MW; referencia de condición de carga.",
-            "Período previo a la modernización del estátor.",
-            "Período posterior a la modernización del estátor.",
-            "Bobinado de cobre del generador donde se induce la corriente eléctrica.",
-            "Parte fija del generador que concentra el flujo magnético.",
-            "Elemento de soporte y guía del eje rotante, dependiente de adecuada lubricación."
-        ]
-    })
-    st.dataframe(glos, use_container_width=True, hide_index=True, height=340)
+        glos = pd.DataFrame({
+            "Término": [
+                "P95 (Percentil 95)",
+                "Desv. Estándar (σ)",
+                "Delta (Δ)",
+                "Potencia Activa",
+                "ANTES",
+                "DESPUÉS",
+                "Devanado",
+                "Núcleo Estátor",
+                "Cojinete"
+            ],
+            "Definición": [
+                "Temperatura superada solo el 5% del tiempo; indicador de condición sostenida real.",
+                "Medida de variabilidad; menor σ implica mayor estabilidad térmica.",
+                "Diferencia DESPUÉS - ANTES; valor negativo suele indicar mejora térmica.",
+                "Energía eléctrica activa generada en MW; referencia de condición de carga.",
+                "Período previo a la modernización del estátor.",
+                "Período posterior a la modernización del estátor.",
+                "Bobinado de cobre del generador donde se induce la corriente eléctrica.",
+                "Parte fija del generador que concentra el flujo magnético.",
+                "Elemento de soporte y guía del eje rotante, dependiente de adecuada lubricación."
+            ]
+        })
+        st.dataframe(glos, use_container_width=True, hide_index=True, height=340)
 
 # ==============================================================================
 # PIE DE PÁGINA
 # ==============================================================================
 st.markdown("---")
 st.markdown(f"""
-<div style="text-align:center;color:{theme_cfg["text_soft"]};font-size:12px;padding:10px;">
-    <b>Dashboard de Confiabilidad Operacional — Modernización Estátor U1 — V3 Ejecutiva</b><br>
-    Área de Instrumentación, Control y Protección | Central Hidroeléctrica Playas — EPM<br>
+<div style="text-align:center;color:{theme_cfg["text_soft"]};font-size:{'10px' if modo_movil else '12px'};padding:10px;">
+    <b>Dashboard de Confiabilidad Operacional — Modernización Estátor U1 — V4 Responsive</b><br>
+    Elaboro jaime alonso Rua M - ingeniero electronico | Central Hidroeléctrica Playas — EPM<br>
     Datos: Histórico SCADA validado | Mayo 2024 – Enero 2026
 </div>
 """, unsafe_allow_html=True)
