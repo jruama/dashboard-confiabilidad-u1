@@ -79,117 +79,189 @@ def get_theme_config(theme_name: str):
 # ==============================================================================
 # FUNCIONES AUXILIARES
 # ==============================================================================
-def fmt_temp(v):
-    return f"{v:.1f}°C" if v is not None else "—"
+def clamp(value, min_value, max_value):
+    return max(min_value, min(value, max_value))
 
-def fmt_num(v):
-    return f"{v:.1f}" if v is not None else "—"
+def calcular_score_global(df_antes, df_despues):
+    score = 100
+    detalles = []
 
-def stats(data, col):
-    if col not in data.columns:
-        return None, None, None, None, None
-    v = pd.to_numeric(data[col], errors="coerce").dropna()
-    if len(v) == 0:
-        return None, None, None, None, None
-    return (
-        round(float(v.mean()), 1),
-        round(float(v.min()), 1),
-        round(float(v.max()), 1),
-        round(float(v.std()), 1),
-        round(float(v.quantile(0.95)), 1),
-    )
-
-def clasificar_estado_temp(valor):
-    if valor is None:
-        return "Sin dato", "pill-warn"
-    if valor < 75:
-        return "Óptimo", "pill-ok"
-    elif valor < 85:
-        return "Normal", "pill-warn"
-    return "Crítico", "pill-alert"
-
-def clasificar_semaforo(delta):
-    if delta is None:
-        return "🟡 Sin base suficiente"
-    if delta <= -10:
-        return "🟢 Mejora robusta"
-    if delta < 0:
-        return "🟡 Mejora moderada"
-    return "🔴 Deterioro / aumento térmico"
-
-def kpi_card(title, value, subtitle="", border="#3a7d3a"):
-    st.markdown(f"""
-    <div class="kpi-card" style="border-top:5px solid {border};">
-        <div class="kpi-title">{title}</div>
-        <div class="kpi-value">{value}</div>
-        <div class="kpi-sub">{subtitle}</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-def insight_box(title, body, border="#1565C0"):
-    st.markdown(f"""
-    <div class="panel-box" style="border-left:5px solid {border};">
-        <div class="panel-title">{title}</div>
-        <div style="font-size:13px; color:#333; line-height:1.5;">{body}</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-def safe_mean(df, col):
-    if col not in df.columns:
-        return None
-    s = pd.to_numeric(df[col], errors="coerce").dropna()
-    if s.empty:
-        return None
-    return round(float(s.mean()), 1)
-
-def build_conclusiones_subsistemas(df_antes, df_despues):
-    conclusiones = []
-
-    a_dev, _, _, _, _ = stats(df_antes, "Temp_Dev_Prom") if not df_antes.empty else (None,)*5
-    d_dev, _, _, _, _ = stats(df_despues, "Temp_Dev_Prom") if not df_despues.empty else (None,)*5
-    if a_dev is not None and d_dev is not None:
-        delta = round(d_dev - a_dev, 1)
-        if delta <= -10:
-            txt = "Mejora térmica robusta posterior a la modernización."
-        elif delta < 0:
-            txt = "Mejora térmica moderada en el devanado."
-        else:
-            txt = "Incremento térmico posterior; requiere revisión."
-        conclusiones.append({"Subsistema": "Estátor y Devanado", "Delta (°C)": delta, "Conclusión": txt})
+    a_dev, _, a_max, a_std, _ = stats(df_antes, "Temp_Dev_Prom") if not df_antes.empty else (None,)*5
+    d_dev, _, d_max, d_std, _ = stats(df_despues, "Temp_Dev_Prom") if not df_despues.empty else (None,)*5
 
     a_ci, _, _, _, _ = stats(df_antes, "Temp_Metal_CojInf_Seg4_C") if not df_antes.empty else (None,)*5
     d_ci, _, _, _, _ = stats(df_despues, "Temp_Metal_CojInf_Seg4_C") if not df_despues.empty else (None,)*5
-    if a_ci is not None and d_ci is not None:
-        delta = round(d_ci - a_ci, 1)
-        if delta > 3:
-            txt = "Incremento relevante en cojinete inferior; seguimiento prioritario."
-        elif delta > 0:
-            txt = "Leve aumento térmico en cojinetes."
-        else:
-            txt = "Comportamiento térmico controlado en cojinetes."
-        conclusiones.append({"Subsistema": "Cojinetes", "Delta (°C)": delta, "Conclusión": txt})
 
     a_pres = safe_mean(df_antes, "Pres_Agua_SistRefrig_bar") if not df_antes.empty else None
     d_pres = safe_mean(df_despues, "Pres_Agua_SistRefrig_bar") if not df_despues.empty else None
+
+    if a_dev is not None and d_dev is not None:
+        delta_dev = d_dev - a_dev
+        if delta_dev > 3:
+            score -= 22
+            detalles.append("Incremento térmico relevante en devanado")
+        elif delta_dev > 0:
+            score -= 12
+            detalles.append("Leve incremento térmico en devanado")
+        elif delta_dev <= -10:
+            detalles.append("Mejora térmica robusta en devanado")
+        elif delta_dev < 0:
+            detalles.append("Mejora térmica moderada en devanado")
+
+    if a_max is not None and d_max is not None:
+        delta_max = d_max - a_max
+        if delta_max > 3:
+            score -= 15
+            detalles.append("Aumento en máximos térmicos")
+        elif delta_max > 0:
+            score -= 7
+            detalles.append("Leve aumento en máximos térmicos")
+
+    if a_std is not None and d_std is not None:
+        delta_std = d_std - a_std
+        if delta_std > 1.5:
+            score -= 12
+            detalles.append("Mayor dispersión térmica")
+        elif delta_std > 0.5:
+            score -= 6
+            detalles.append("Estabilidad térmica inferior")
+
+    if a_ci is not None and d_ci is not None:
+        delta_ci = d_ci - a_ci
+        if delta_ci > 3:
+            score -= 18
+            detalles.append("Incremento relevante en cojinete inferior")
+        elif delta_ci > 0:
+            score -= 8
+            detalles.append("Leve incremento en cojinete inferior")
+
     if a_pres is not None and d_pres is not None:
-        delta = round(d_pres - a_pres, 1)
-        if delta < -0.2:
-            txt = "Disminución en presión de refrigeración; revisar condición hidráulica."
-        elif delta > 0.2:
-            txt = "Presión de refrigeración superior respecto al período ANTES."
-        else:
-            txt = "Presión de refrigeración estable."
-        conclusiones.append({"Subsistema": "Sistema de Refrigeración", "Delta (°C)": delta, "Conclusión": txt})
+        delta_pres = d_pres - a_pres
+        if delta_pres < -0.3:
+            score -= 12
+            detalles.append("Caída importante en presión de refrigeración")
+        elif delta_pres < -0.1:
+            score -= 5
+            detalles.append("Ligera reducción en presión de refrigeración")
 
-    return pd.DataFrame(conclusiones)
+    score = clamp(round(score), 0, 100)
 
-def to_excel_bytes(df_dict):
-    output = io.BytesIO()
-    with pd.ExcelWriter(output, engine="openpyxl") as writer:
-        for sheet_name, df_sheet in df_dict.items():
-            df_sheet.to_excel(writer, index=False, sheet_name=sheet_name[:31])
-    output.seek(0)
-    return output.getvalue()
+    if score >= 90:
+        estado = "Excelente"
+        color = "#1B7A4E"
+        lectura = "Condición global muy favorable bajo los filtros seleccionados."
+    elif score >= 75:
+        estado = "Estable"
+        color = "#1565C0"
+        lectura = "Condición global estable con algunos puntos de seguimiento."
+    elif score >= 60:
+        estado = "Atención"
+        color = "#E65100"
+        lectura = "Condición global aceptable, pero con variables que requieren seguimiento."
+    else:
+        estado = "Crítico"
+        color = "#C00000"
+        lectura = "Condición global con hallazgos relevantes que deben revisarse."
+    
+    return score, estado, color, lectura, detalles[:3]
+
+def card_resumen_ejecutivo(titulo, valor, subtitulo="", color="#1565C0", icono="📌"):
+    st.markdown(f"""
+    <div class="executive-card" style="border-top:5px solid {color};">
+        <div class="executive-label">{icono} {titulo}</div>
+        <div class="executive-value">{valor}</div>
+        <div class="executive-sub">{subtitulo}</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+def badge_estado(texto, color):
+    return f"""
+    <span style="
+        display:inline-block;
+        background:{color};
+        color:white;
+        padding:6px 14px;
+        border-radius:24px;
+        font-size:12px;
+        font-weight:700;
+        letter-spacing:0.2px;">
+        {texto}
+    </span>
+    """
+
+def construir_hallazgos(df_antes, df_despues):
+    hallazgos = []
+
+    a_dev, _, _, _, _ = stats(df_antes, "Temp_Dev_Prom") if not df_antes.empty else (None,)*5
+    d_dev, _, _, _, _ = stats(df_despues, "Temp_Dev_Prom") if not df_despues.empty else (None,)*5
+    a_ci, _, _, _, _ = stats(df_antes, "Temp_Metal_CojInf_Seg4_C") if not df_antes.empty else (None,)*5
+    d_ci, _, _, _, _ = stats(df_despues, "Temp_Metal_CojInf_Seg4_C") if not df_despues.empty else (None,)*5
+    a_pres = safe_mean(df_antes, "Pres_Agua_SistRefrig_bar") if not df_antes.empty else None
+    d_pres = safe_mean(df_despues, "Pres_Agua_SistRefrig_bar") if not df_despues.empty else None
+
+    if a_dev is not None and d_dev is not None:
+        delta = round(d_dev - a_dev, 1)
+        hallazgos.append({
+            "Hallazgo": "Devanado promedio",
+            "Delta": delta,
+            "Lectura": (
+                "Mejora térmica robusta posterior a la modernización."
+                if delta <= -10 else
+                "Mejora térmica moderada del devanado."
+                if delta < 0 else
+                "Incremento térmico del devanado; revisar comparabilidad y enfriamiento."
+            ),
+            "Prioridad": "Alta" if delta > 0 else "Media" if delta > -5 else "Baja"
+        })
+
+    if a_ci is not None and d_ci is not None:
+        delta = round(d_ci - a_ci, 1)
+        hallazgos.append({
+            "Hallazgo": "Cojinete inferior",
+            "Delta": delta,
+            "Lectura": (
+                "Incremento relevante en cojinete inferior."
+                if delta > 3 else
+                "Leve incremento térmico en cojinete inferior."
+                if delta > 0 else
+                "Comportamiento térmico controlado en cojinete inferior."
+            ),
+            "Prioridad": "Alta" if delta > 3 else "Media" if delta > 0 else "Baja"
+        })
+
+    if a_pres is not None and d_pres is not None:
+        delta = round(d_pres - a_pres, 2)
+        hallazgos.append({
+            "Hallazgo": "Presión de refrigeración",
+            "Delta": delta,
+            "Lectura": (
+                "Disminución importante en presión del sistema de refrigeración."
+                if delta < -0.3 else
+                "Ligera disminución de presión; seguir tendencia."
+                if delta < 0 else
+                "Presión de refrigeración estable o superior."
+            ),
+            "Prioridad": "Alta" if delta < -0.3 else "Media" if delta < 0 else "Baja"
+        })
+
+    if not hallazgos:
+        return pd.DataFrame(columns=["Hallazgo", "Delta", "Lectura", "Prioridad"])
+
+    prioridad_orden = {"Alta": 0, "Media": 1, "Baja": 2}
+    df_h = pd.DataFrame(hallazgos)
+    df_h["Orden"] = df_h["Prioridad"].map(prioridad_orden)
+    df_h = df_h.sort_values(["Orden", "Hallazgo"]).drop(columns="Orden")
+    return df_h
+
+def modo_columnas(cantidad_desktop, modo_movil=False):
+    if modo_movil:
+        if cantidad_desktop >= 4:
+            return st.columns(2)
+        elif cantidad_desktop == 3:
+            return st.columns(1)
+        elif cantidad_desktop == 2:
+            return st.columns(1)
+    return st.columns(cantidad_desktop)
 
 # ==============================================================================
 # CARGA DE DATOS
@@ -253,7 +325,8 @@ with st.sidebar:
     st.markdown("---")
 
     tema_visual = st.selectbox("Tema visual", ["Claro", "Oscuro"], index=0)
-    modo_movil = st.toggle("Modo móvil", value=False, help="Actívelo si abre el dashboard desde celular o si desea una vista más compacta.")
+    modo_presentacion = st.toggle("Modo presentación ejecutiva", value=False, help="Simplifica la lectura y resalta hallazgos clave.")
+modo_movil = st.toggle("Modo móvil", value=False, help="Actívelo si abre el dashboard desde celular o si desea una vista más compacta.")
     theme_cfg = get_theme_config(tema_visual)
 
     mostrar_logo = True
@@ -333,167 +406,80 @@ st.markdown(f"""
         background-color: {theme_cfg["bg_main"]};
     }}
 
-    .header-banner {{
-        background: linear-gradient(135deg, {theme_cfg["header_grad_1"]} 0%, {theme_cfg["header_grad_2"]} 45%, {theme_cfg["header_grad_3"]} 100%);
-        padding: {"16px 18px" if modo_movil else "24px 32px"};
-        border-radius: 14px;
-        margin-bottom: 18px;
-        border-left: 6px solid {theme_cfg["border_left"]};
-        box-shadow: {theme_cfg["box_shadow"]};
-    }}
-
-    .header-title {{
-        color:#ffffff;
-        font-size:{font_header};
-        font-weight:800;
-        margin:0;
-        font-family:Arial,sans-serif;
-        line-height:1.35;
-    }}
-
-    .header-sub {{
-        color:#c5ced8;
-        font-size:{font_sub};
-        margin:4px 0 0 0;
-        font-family:Arial,sans-serif;
-        line-height:1.45;
-    }}
-
-    .epm-badge {{
-        background-color:#3a7d3a;
-        color:white;
-        padding:5px 14px;
-        border-radius:20px;
-        font-size:12px;
-        font-weight:bold;
-        display:inline-block;
-    }}
-
-    .seccion-titulo {{
-        background:#000000;
-        color:white;
-        padding:9px 16px;
-        border-radius:8px;
-        font-size:{section_font};
-        font-weight:bold;
-        margin:16px 0 10px 0;
-        border-left:5px solid #3a7d3a;
-        letter-spacing:0.2px;
-    }}
-
-    .box-exito {{
-        background:#E8F5E9;
-        border-left:5px solid #1B7A4E;
-        padding:12px 16px;
-        border-radius:0 8px 8px 0;
-        margin:8px 0;
-        font-size:13px;
-        color:#222;
-    }}
-
-    .box-alerta {{
-        background:#FFEBEE;
-        border-left:5px solid #C00000;
-        padding:12px 16px;
-        border-radius:0 8px 8px 0;
-        margin:8px 0;
-        font-size:13px;
-        color:#222;
-    }}
-
-    .box-info {{
-        background:#E8F4FD;
-        border-left:5px solid #1565C0;
-        padding:12px 16px;
-        border-radius:0 8px 8px 0;
-        margin:8px 0;
-        font-size:13px;
-        color:#222;
-    }}
-
-    .kpi-card {{
-        background: {theme_cfg["bg_card"]};
-        border-radius: 14px;
-        padding: {"14px 14px" if modo_movil else "18px 18px"};
-        box-shadow: {theme_cfg["box_shadow"]};
-        border-top: 5px solid #3a7d3a;
-        min-height: {"105px" if modo_movil else "122px"};
-        margin-bottom: 10px;
-    }}
-
-    .kpi-title {{
-        color: {theme_cfg["text_soft"]};
-        font-size: {kpi_title_font};
-        font-weight: 700;
-        margin-bottom: 8px;
-        text-transform: uppercase;
-        letter-spacing: 0.4px;
-    }}
-
-    .kpi-value {{
-        color: {theme_cfg["text_main"]};
-        font-size: {kpi_value_font};
-        font-weight: 800;
-        line-height: 1.08;
-        margin-bottom: 6px;
-    }}
-
-    .kpi-sub {{
-        color: {theme_cfg["text_soft"]};
-        font-size: {"11px" if modo_movil else "12px"};
-        line-height: 1.35;
-    }}
-
-    .panel-box {{
-        background: {theme_cfg["bg_panel"]};
-        border-radius: 12px;
+    .executive-card {
+        background: linear-gradient(180deg, #ffffff 0%, #fbfcfe 100%);
+        border-radius: 16px;
         padding: 16px 18px;
-        box-shadow: {theme_cfg["box_shadow"]};
-        border-left: 5px solid #1565C0;
-        margin: 8px 0 14px 0;
-    }}
+        box-shadow: 0 4px 16px rgba(0,0,0,0.08);
+        min-height: 118px;
+        margin-bottom: 10px;
+    }
 
-    .panel-title {{
-        font-size: 14px;
+    .executive-label {
+        font-size: 12px;
         font-weight: 800;
-        color: {theme_cfg["text_main"]};
+        color: #5a5a5a;
+        text-transform: uppercase;
         margin-bottom: 8px;
-    }}
+        letter-spacing: 0.3px;
+    }
 
-    .pill-ok {{
-        display:inline-block;
-        background:#E8F5E9;
-        color:#1B7A4E;
-        padding:4px 10px;
-        border-radius:30px;
-        font-size:11px;
-        font-weight:700;
-    }}
+    .executive-value {
+        font-size: 28px;
+        font-weight: 900;
+        color: #111111;
+        line-height: 1.1;
+        margin-bottom: 6px;
+    }
 
-    .pill-warn {{
-        display:inline-block;
-        background:#FFF3E0;
-        color:#E65100;
-        padding:4px 10px;
-        border-radius:30px;
-        font-size:11px;
-        font-weight:700;
-    }}
+    .executive-sub {
+        font-size: 12px;
+        color: #666666;
+        line-height: 1.4;
+    }
 
-    .pill-alert {{
-        display:inline-block;
-        background:#FFEBEE;
-        color:#C00000;
-        padding:4px 10px;
-        border-radius:30px;
-        font-size:11px;
-        font-weight:700;
-    }}
+    .hero-box {
+        background: linear-gradient(135deg, #0B0B0B 0%, #1B1B1B 45%, #2E2E2E 100%);
+        border-radius: 18px;
+        padding: 20px 22px;
+        box-shadow: 0 6px 18px rgba(0,0,0,0.18);
+        border-left: 6px solid #3a7d3a;
+        margin-bottom: 18px;
+    }
 
-    img {{
-        max-width:{logo_max};
-        height:auto;
-    }}
+    .hero-title {
+        color: white;
+        font-size: 26px;
+        font-weight: 900;
+        margin: 0 0 6px 0;
+        line-height: 1.2;
+    }
+
+    .hero-sub {
+        color: #d6d6d6;
+        font-size: 13px;
+        line-height: 1.5;
+        margin: 0;
+    }
+
+    .hero-mini {
+        color: #c5ced8;
+        font-size: 11px;
+        line-height: 1.4;
+        margin-top: 10px;
+    }
+
+    @media (max-width: 768px) {
+        .executive-value {
+            font-size: 22px !important;
+        }
+        .hero-title {
+            font-size: 18px !important;
+        }
+        .executive-card {
+            min-height: 100px !important;
+        }
+    }
 
     footer {{ visibility:hidden; }}
     #MainMenu {{ visibility:hidden; }}
@@ -522,39 +508,44 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # ==============================================================================
-# ENCABEZADO
+# ENCABEZADO V6
 # ==============================================================================
+score_global, estado_global, color_estado, lectura_global, detalles_score = calcular_score_global(df_antes, df_despues)
+
 if modo_movil:
-    st.markdown("""
-    <div class="header-banner">
-        <div>
-            <p class="header-title">⚡ Dashboard de Confiabilidad Operacional — V3 Ejecutiva</p>
-            <p class="header-sub">Análisis de Impacto — Modernización del Estátor | Unidad de Generación N.° 1</p>
-            <p class="header-sub">Central Hidroeléctrica Playas | Área de Instrumentación, Control y Protección</p>
-            <div style="margin-top:10px;">
-                <span class="epm-badge">EPM</span>
-            </div>
-            <p class="header-sub" style="margin-top:10px;">SCADA histórico validado</p>
-            <p class="header-sub">Mayo 2024 – Enero 2026</p>
+    st.markdown(f"""
+    <div class="hero-box">
+        <div class="hero-title">⚡ Dashboard de Confiabilidad Operacional</div>
+        <p class="hero-sub">Análisis de Impacto — Modernización del Estátor | Unidad de Generación N.° 1</p>
+        <p class="hero-sub">Central Hidroeléctrica Playas | Área de Instrumentación, Control y Protección</p>
+        <div style="margin-top:12px;">{badge_estado(f"Estado global: {estado_global}", color_estado)}</div>
+        <div class="hero-mini">
+            Desarrollo técnico: <b>Jaime Alonso Rúa Marín – Ingeniero Electrónico</b><br>
+            Construido como aporte profesional al análisis de confiabilidad operacional y al trabajo en equipo
         </div>
     </div>
     """, unsafe_allow_html=True)
 
     if mostrar_logo and os.path.exists(ruta_logo):
-        st.image(ruta_logo, width=180)
+        st.image(ruta_logo, width=160)
 else:
     col_header_1, col_header_2 = st.columns([8, 2])
 
     with col_header_1:
-        st.markdown("""
-        <div class="header-banner">
-            <div style="display:flex;justify-content:space-between;align-items:center;gap:20px;">
+        st.markdown(f"""
+        <div class="hero-box">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:18px;">
                 <div>
-                    <p class="header-title">⚡ Dashboard de Confiabilidad Operacional — V3 Ejecutiva</p>
-                    <p class="header-sub">Análisis de Impacto — Modernización del Estátor | Unidad de Generación N.° 1</p>
-                    <p class="header-sub">Central Hidroeléctrica Playas | Área de Instrumentación, Control y Protección</p>
+                    <div class="hero-title">⚡ Dashboard de Confiabilidad Operacional — V6 Premium</div>
+                    <p class="hero-sub">Análisis de Impacto — Modernización del Estátor | Unidad de Generación N.° 1</p>
+                    <p class="hero-sub">Central Hidroeléctrica Playas | Área de Instrumentación, Control y Protección</p>
+                    <div class="hero-mini">
+                        Desarrollo técnico: <b>Jaime Alonso Rúa Marín – Ingeniero Electrónico</b><br>
+                        Construido como aporte profesional al análisis de confiabilidad operacional y al trabajo en equipo
+                    </div>
                 </div>
                 <div style="text-align:right;">
+                    {badge_estado(f"Estado global: {estado_global}", color_estado)}<br><br>
                     <span class="epm-badge">EPM</span><br>
                     <span style="color:#c5ced8;font-size:11px;">SCADA histórico validado</span><br>
                     <span style="color:#c5ced8;font-size:11px;">Mayo 2024 – Enero 2026</span>
@@ -612,6 +603,40 @@ tabs_dict = {name: tab for (_, name), tab in zip(tabs_config, tabs)}
 # ==============================================================================
 with tabs_dict["tab1"]:
     st.markdown('<div class="seccion-titulo">📈 RESUMEN EJECUTIVO PREMIUM</div>', unsafe_allow_html=True)
+    hallazgos_df = construir_hallazgos(df_antes, df_despues)
+
+    if modo_movil:
+        row1 = st.columns(2)
+        with row1[0]:
+            card_resumen_ejecutivo("Índice global", f"{score_global}/100", lectura_global, color_estado, "🎯")
+        with row1[1]:
+            card_resumen_ejecutivo("Condición", estado_global, "Evaluación ejecutiva automática", color_estado, "🩺")
+
+        row2 = st.columns(2)
+        with row2[0]:
+            total_reg = len(df_f)
+            card_resumen_ejecutivo("Registros analizados", f"{total_reg:,}", "Aplicando filtros vigentes", "#1565C0", "📊")
+        with row2[1]:
+            total_subs = hallazgos_df["Hallazgo"].nunique() if not hallazgos_df.empty else 0
+            card_resumen_ejecutivo("Hallazgos construidos", f"{total_subs}", "Variables críticas interpretadas", "#6A1B9A", "🧠")
+    else:
+        e1, e2, e3, e4 = st.columns(4)
+        with e1:
+            card_resumen_ejecutivo("Índice global", f"{score_global}/100", lectura_global, color_estado, "🎯")
+        with e2:
+            card_resumen_ejecutivo("Condición", estado_global, "Evaluación ejecutiva automática", color_estado, "🩺")
+        with e3:
+            total_reg = len(df_f)
+            card_resumen_ejecutivo("Registros analizados", f"{total_reg:,}", "Aplicando filtros vigentes", "#1565C0", "📊")
+        with e4:
+            total_subs = hallazgos_df["Hallazgo"].nunique() if not hallazgos_df.empty else 0
+            card_resumen_ejecutivo("Hallazgos construidos", f"{total_subs}", "Variables críticas interpretadas", "#6A1B9A", "🧠")
+
+    st.markdown('<div class="seccion-titulo">🚨 TOP HALLAZGOS AUTOMÁTICOS</div>', unsafe_allow_html=True)
+    if not hallazgos_df.empty:
+        st.dataframe(hallazgos_df, use_container_width=True, hide_index=True)
+    else:
+        st.info("No se generaron hallazgos automáticos con los filtros actuales.")
 
     a_avg, _, a_max, a_std, _ = stats(df_antes, "Temp_Dev_Prom") if not df_antes.empty else (None, None, None, None, None)
     d_avg, _, d_max, d_std, _ = stats(df_despues, "Temp_Dev_Prom") if not df_despues.empty else (None, None, None, None, None)
@@ -1609,13 +1634,14 @@ with tabs_dict["tab5"]:
         st.dataframe(glos, use_container_width=True, hide_index=True, height=340)
 
 # ==============================================================================
-# PIE DE PÁGINA
+# PIE DE PÁGINA V6
 # ==============================================================================
 st.markdown("---")
 st.markdown(f"""
-<div style="text-align:center;color:{theme_cfg["text_soft"]};font-size:{'10px' if modo_movil else '12px'};padding:10px;">
-    <b>Dashboard de Confiabilidad Operacional — Modernización Estátor U1 — V4 Responsive</b><br>
-    Elaboro jaime alonso Rua M - ingeniero electronico | Central Hidroeléctrica Playas — EPM<br>
+<div style="text-align:center;color:{theme_cfg["text_soft"]};font-size:{'10px' if modo_movil else '12px'};padding:10px;line-height:1.6;">
+    <b>Dashboard de Confiabilidad Operacional — Modernización Estátor U1 — V6 Premium</b><br>
+    Área de Instrumentación, Control y Protección | Central Hidroeléctrica Playas — EPM<br>
+    Desarrollo técnico: <b>Jaime Alonso Rúa Marín – Ingeniero Electrónico</b><br>
     Datos: Histórico SCADA validado | Mayo 2024 – Enero 2026
 </div>
 """, unsafe_allow_html=True)
