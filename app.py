@@ -26,7 +26,7 @@ st.set_page_config(
     page_title="Dashboard Confiabilidad U1 — Central Playas EPM",
     layout="wide",
     page_icon="⚡",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="collapsed"   # collapsed → sidebar NO bloquea móvil al abrir
 )
 
 # ==============================================================================
@@ -459,6 +459,34 @@ df = cargar_datos()
 mes_map = df.drop_duplicates("Mes_Num").set_index("Mes_Num")["Mes_Label"].to_dict()
 
 # ==============================================================================
+# DETECCIÓN AUTOMÁTICA DE DISPOSITIVO MÓVIL
+# Inyectamos JS que escribe el ancho de pantalla en un query param
+# y Streamlit lo lee en el próximo rerun. Es el patrón más robusto disponible.
+# ==============================================================================
+st.markdown("""
+<script>
+(function() {
+    const w = window.innerWidth || document.documentElement.clientWidth;
+    const isMobile = w < 768;
+    const params = new URLSearchParams(window.location.search);
+    const current = params.get('mobile');
+    const needed = isMobile ? '1' : '0';
+    if (current !== needed) {
+        params.set('mobile', needed);
+        const newUrl = window.location.pathname + '?' + params.toString();
+        window.history.replaceState({}, '', newUrl);
+        // pequeño delay para que Streamlit capture el param
+        setTimeout(() => { window.location.reload(); }, 120);
+    }
+})();
+</script>
+""", unsafe_allow_html=True)
+
+# Leer el query param de móvil (sin depender del toggle manual)
+_qp = st.query_params
+_auto_movil = _qp.get("mobile", "0") == "1"
+
+# ==============================================================================
 # SIDEBAR — CONFIGURACIÓN GENERAL
 # ==============================================================================
 with st.sidebar:
@@ -474,10 +502,11 @@ with st.sidebar:
         help="Simplifica la visualización para exposición ejecutiva"
     )
 
+    # El toggle de móvil usa el valor detectado automáticamente como default
     modo_movil = st.toggle(
         "Modo móvil",
-        value=False,
-        help="Actívelo si visualiza desde celular o pantalla pequeña"
+        value=_auto_movil,
+        help="Se activa automáticamente en pantallas < 768px"
     )
 
     theme_cfg = get_theme_config(tema_visual)
@@ -520,7 +549,7 @@ with st.sidebar:
     meses_sel_labels = st.multiselect(
         "Seleccione meses:",
         options=meses_labels_all,
-        default=meses_labels_all[:4] if modo_movil else meses_labels_all
+        default=meses_labels_all  # siempre todos por defecto — el usuario filtra si quiere
     )
     meses_sel = [m for m in meses_ordenados if mes_map[m] in meses_sel_labels]
 
@@ -575,20 +604,48 @@ with st.sidebar:
 # ==============================================================================
 # CSS DINÁMICO SEGÚN TEMA / RESPONSIVE
 # ==============================================================================
-font_header    = "18px" if modo_movil else "24px"
-font_sub       = "12px" if modo_movil else "14px"
-logo_max       = "220px" if modo_movil else "100%"
-section_font   = "12px" if modo_movil else "13px"
-kpi_value_font = "22px" if modo_movil else "28px"
-kpi_title_font = "11px" if modo_movil else "12px"
+font_header    = "16px" if modo_movil else "24px"
+font_sub       = "11px" if modo_movil else "14px"
+logo_max       = "180px" if modo_movil else "100%"
+section_font   = "11px" if modo_movil else "13px"
+kpi_value_font = "20px" if modo_movil else "28px"
+kpi_title_font = "10px" if modo_movil else "12px"
 
 st.markdown(f"""
 <style>
+    /* ── Reset base ── */
     .main {{ background-color: {theme_cfg["bg_main"]}; }}
+
+    /* ── Fuerza columnas a apilarse en pantallas pequeñas ── */
+    @media screen and (max-width: 767px) {{
+        /* Streamlit columns wrapper */
+        div[data-testid="stHorizontalBlock"] {{
+            flex-wrap: wrap !important;
+        }}
+        div[data-testid="stHorizontalBlock"] > div[data-testid="stVerticalBlock"] {{
+            min-width: 100% !important;
+            width: 100% !important;
+            flex: 1 1 100% !important;
+        }}
+        /* Sidebar oculto por defecto en móvil */
+        section[data-testid="stSidebar"] {{
+            width: 85vw !important;
+            min-width: 0 !important;
+        }}
+        /* Tabs scrollables */
+        div[data-testid="stTabs"] button {{
+            font-size: 11px !important;
+            padding: 6px 8px !important;
+        }}
+        /* Plots full width */
+        div[data-testid="stPlotlyChart"] {{
+            width: 100% !important;
+        }}
+    }}
 
     .header-banner {{
         background: linear-gradient(135deg, {theme_cfg["header_grad_1"]} 0%, {theme_cfg["header_grad_2"]} 45%, {theme_cfg["header_grad_3"]} 100%);
-        padding: {"16px 18px" if modo_movil else "24px 32px"};
+        padding: {"14px 12px" if modo_movil else "24px 32px"};
         border-radius: 14px;
         margin-bottom: 18px;
         border-left: 6px solid {theme_cfg["border_left"]};
@@ -601,7 +658,7 @@ st.markdown(f"""
         font-weight: 800;
         margin: 0;
         font-family: Arial, sans-serif;
-        line-height: 1.35;
+        line-height: 1.3;
     }}
 
     .header-sub {{
@@ -609,7 +666,7 @@ st.markdown(f"""
         font-size: {font_sub};
         margin: 4px 0 0 0;
         font-family: Arial, sans-serif;
-        line-height: 1.45;
+        line-height: 1.4;
     }}
 
     .epm-badge {{
@@ -667,10 +724,10 @@ st.markdown(f"""
     .kpi-card {{
         background: {theme_cfg["bg_card"]};
         border-radius: 14px;
-        padding: {"14px 14px" if modo_movil else "18px 18px"};
+        padding: {"12px 12px" if modo_movil else "18px 18px"};
         box-shadow: {theme_cfg["box_shadow"]};
         border-top: 5px solid #3a7d3a;
-        min-height: {"105px" if modo_movil else "122px"};
+        min-height: {"90px" if modo_movil else "122px"};
         margin-bottom: 10px;
     }}
 
@@ -678,7 +735,7 @@ st.markdown(f"""
         color: {theme_cfg["text_soft"]};
         font-size: {kpi_title_font};
         font-weight: 700;
-        margin-bottom: 8px;
+        margin-bottom: 6px;
         text-transform: uppercase;
         letter-spacing: 0.4px;
     }}
@@ -687,14 +744,14 @@ st.markdown(f"""
         color: {theme_cfg["text_main"]};
         font-size: {kpi_value_font};
         font-weight: 800;
-        line-height: 1.08;
-        margin-bottom: 6px;
+        line-height: 1.1;
+        margin-bottom: 4px;
     }}
 
     .kpi-sub {{
         color: {theme_cfg["text_soft"]};
-        font-size: {"11px" if modo_movil else "12px"};
-        line-height: 1.35;
+        font-size: {"10px" if modo_movil else "12px"};
+        line-height: 1.3;
     }}
 
     .panel-box {{
@@ -706,79 +763,55 @@ st.markdown(f"""
         margin: 8px 0 14px 0;
     }}
 
-    .panel-title {{
-        font-size: 14px;
-        font-weight: 800;
-        color: {theme_cfg["text_main"]};
-        margin-bottom: 8px;
-    }}
-
     .pill-ok {{
-        display: inline-block;
-        background: #E8F5E9;
-        color: #1B7A4E;
-        padding: 4px 10px;
-        border-radius: 30px;
-        font-size: 11px;
-        font-weight: 700;
+        display: inline-block; background: #E8F5E9; color: #1B7A4E;
+        padding: 4px 10px; border-radius: 30px; font-size: 11px; font-weight: 700;
     }}
-
     .pill-warn {{
-        display: inline-block;
-        background: #FFF3E0;
-        color: #E65100;
-        padding: 4px 10px;
-        border-radius: 30px;
-        font-size: 11px;
-        font-weight: 700;
+        display: inline-block; background: #FFF3E0; color: #E65100;
+        padding: 4px 10px; border-radius: 30px; font-size: 11px; font-weight: 700;
     }}
-
     .pill-alert {{
-        display: inline-block;
-        background: #FFEBEE;
-        color: #C00000;
-        padding: 4px 10px;
-        border-radius: 30px;
-        font-size: 11px;
-        font-weight: 700;
+        display: inline-block; background: #FFEBEE; color: #C00000;
+        padding: 4px 10px; border-radius: 30px; font-size: 11px; font-weight: 700;
     }}
 
     .executive-card {{
         background: linear-gradient(180deg, #ffffff 0%, #fbfcfe 100%);
         border-radius: 16px;
-        padding: 16px 18px;
+        padding: {"12px 14px" if modo_movil else "16px 18px"};
         box-shadow: 0 4px 16px rgba(0,0,0,0.08);
-        min-height: 118px;
+        min-height: {"90px" if modo_movil else "118px"};
         margin-bottom: 10px;
     }}
 
     .executive-label {{
-        font-size: 12px;
+        font-size: {"10px" if modo_movil else "12px"};
         font-weight: 800;
         color: #5a5a5a;
         text-transform: uppercase;
-        margin-bottom: 8px;
+        margin-bottom: 6px;
         letter-spacing: 0.3px;
     }}
 
     .executive-value {{
-        font-size: 28px;
+        font-size: {"20px" if modo_movil else "28px"};
         font-weight: 900;
         color: #111111;
         line-height: 1.1;
-        margin-bottom: 6px;
+        margin-bottom: 4px;
     }}
 
     .executive-sub {{
-        font-size: 12px;
+        font-size: {"10px" if modo_movil else "12px"};
         color: #666666;
         line-height: 1.4;
     }}
 
     .hero-box {{
         background: linear-gradient(135deg, #0B0B0B 0%, #1B1B1B 45%, #2E2E2E 100%);
-        border-radius: 18px;
-        padding: 20px 22px;
+        border-radius: {"12px" if modo_movil else "18px"};
+        padding: {"14px 16px" if modo_movil else "20px 22px"};
         box-shadow: 0 6px 18px rgba(0,0,0,0.18);
         border-left: 6px solid #3a7d3a;
         margin-bottom: 18px;
@@ -786,7 +819,7 @@ st.markdown(f"""
 
     .hero-title {{
         color: white;
-        font-size: 26px;
+        font-size: {"18px" if modo_movil else "26px"};
         font-weight: 900;
         margin: 0 0 6px 0;
         line-height: 1.2;
@@ -794,31 +827,19 @@ st.markdown(f"""
 
     .hero-sub {{
         color: #d6d6d6;
-        font-size: 13px;
+        font-size: {"11px" if modo_movil else "13px"};
         line-height: 1.5;
         margin: 0;
     }}
 
     .hero-mini {{
         color: #c5ced8;
-        font-size: 11px;
+        font-size: {"10px" if modo_movil else "11px"};
         line-height: 1.4;
         margin-top: 10px;
     }}
 
     img {{ max-width: {logo_max}; height: auto; }}
-
-    @media (max-width: 768px) {{
-        .header-banner  {{ padding: 14px 14px !important; }}
-        .header-title   {{ font-size: 17px !important; }}
-        .header-sub     {{ font-size: 11px !important; }}
-        .kpi-value      {{ font-size: 21px !important; }}
-        .kpi-title      {{ font-size: 10px !important; }}
-        .kpi-sub        {{ font-size: 10px !important; }}
-        .executive-value{{ font-size: 22px !important; }}
-        .hero-title     {{ font-size: 18px !important; }}
-        .executive-card {{ min-height: 100px !important; }}
-    }}
 
     footer    {{ visibility: hidden; }}
     #MainMenu {{ visibility: hidden; }}
@@ -860,13 +881,12 @@ score_global, estado_global, color_estado, lectura_global, detalles_score = calc
 if modo_movil:
     st.markdown(f"""
     <div class="hero-box">
-        <div class="hero-title">⚡ Dashboard de Confiabilidad Operacional</div>
-        <p class="hero-sub">Análisis de Impacto — Modernización del Estátor | Unidad de Generación N.° 1</p>
-        <p class="hero-sub">Central Hidroeléctrica Playas | Área de Instrumentación, Control y Protección</p>
-        <div style="margin-top:12px;">{badge_estado(f"Estado global: {estado_global}", color_estado)}</div>
+        <div class="hero-title">⚡ Dashboard Confiabilidad Operacional</div>
+        <p class="hero-sub">Impacto Modernización Estátor | U.G. N.° 1 | Central Playas</p>
+        <p class="hero-sub">Área de Instrumentación, Control y Protección — EPM</p>
+        <div style="margin-top:10px;">{badge_estado(f"Estado: {estado_global}", color_estado)}</div>
         <div class="hero-mini">
-            Desarrollo técnico: <b>Jaime Alonso Rúa Marín – Ingeniero Electrónico</b><br>
-            Construido como aporte profesional al análisis de confiabilidad operacional
+            <b>Jaime Alonso Rúa Marín – Ing. Electrónico</b> | SCADA May 2024 – Ene 2026
         </div>
     </div>
     """, unsafe_allow_html=True)
