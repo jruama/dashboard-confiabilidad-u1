@@ -41,6 +41,20 @@ C_GRIS    = "#666666"
 C_NEGRO   = "#111111"
 
 # ==============================================================================
+# UMBRALES OPERACIONALES — fuente única de verdad
+# Modificar aquí impacta score, clasificación y gráficas automáticamente
+# ==============================================================================
+UMBRAL_DEV_NORMAL      = 70    # °C — por debajo: condición normal devanado
+UMBRAL_DEV_ALERTA      = 80    # °C — por encima: alerta devanado
+UMBRAL_NUCLEO_ALERTA   = 85    # °C — umbral núcleo del estátor
+UMBRAL_COJ_ALERTA      = 75    # °C — umbral general cojinetes
+UMBRAL_ACEITE_ALERTA   = 80    # °C — umbral aceite transformador
+UMBRAL_DELTA_CRITICO   = 3     # °C — incremento que dispara hallazgo de prioridad Alta
+UMBRAL_DELTA_MEJORA    = -10   # °C — reducción que se clasifica como mejora robusta
+UMBRAL_PRES_CRITICA    = -0.3  # bar — caída de presión relevante
+UMBRAL_PRES_LEVE       = -0.1  # bar — caída de presión leve
+
+# ==============================================================================
 # FUNCIONES DE TEMA
 # ==============================================================================
 def get_theme_config(theme_name: str):
@@ -123,9 +137,9 @@ def clasificar_estado_temp(temp):
     """Retorna (texto_estado, clase_css) según temperatura del devanado."""
     if temp is None:
         return "Sin datos", "kpi-sub"
-    if temp < 70:
+    if temp < UMBRAL_DEV_NORMAL:
         return "✅ Normal", "pill-ok"
-    elif temp < 80:
+    elif temp < UMBRAL_DEV_ALERTA:
         return "⚠️ Precaución", "pill-warn"
     else:
         return "🚨 Alerta", "pill-alert"
@@ -135,13 +149,13 @@ def clasificar_semaforo(delta):
     """Retorna texto interpretativo del delta térmico."""
     if delta is None:
         return "Sin base comparativa"
-    if delta <= -10:
+    if delta <= UMBRAL_DELTA_MEJORA:
         return "🟢 Mejora térmica robusta"
     elif delta < 0:
         return "🟡 Mejora térmica moderada"
     elif delta == 0:
         return "⚪ Sin cambio significativo"
-    elif delta <= 3:
+    elif delta <= UMBRAL_DELTA_CRITICO:
         return "🟠 Leve incremento — monitorear"
     else:
         return "🔴 Incremento relevante — revisar"
@@ -167,31 +181,26 @@ def calcular_score_global(df_antes, df_despues):
     score = 100
     detalles = []
 
+    # ── Devanado promedio (peso alto: variable principal) ──────────────────
     a_dev, _, a_max, a_std, _ = stats(df_antes, "Temp_Dev_Prom") if not df_antes.empty else (None,)*5
     d_dev, _, d_max, d_std, _ = stats(df_despues, "Temp_Dev_Prom") if not df_despues.empty else (None,)*5
 
-    a_ci, _, _, _, _ = stats(df_antes, "Temp_Metal_CojInf_Seg4_C") if not df_antes.empty else (None,)*5
-    d_ci, _, _, _, _ = stats(df_despues, "Temp_Metal_CojInf_Seg4_C") if not df_despues.empty else (None,)*5
-
-    a_pres = safe_mean(df_antes, "Pres_Agua_SistRefrig_bar") if not df_antes.empty else None
-    d_pres = safe_mean(df_despues, "Pres_Agua_SistRefrig_bar") if not df_despues.empty else None
-
     if a_dev is not None and d_dev is not None:
         delta_dev = d_dev - a_dev
-        if delta_dev > 3:
+        if delta_dev > UMBRAL_DELTA_CRITICO:
             score -= 22
             detalles.append("Incremento térmico relevante en devanado")
         elif delta_dev > 0:
             score -= 12
             detalles.append("Leve incremento térmico en devanado")
-        elif delta_dev <= -10:
+        elif delta_dev <= UMBRAL_DELTA_MEJORA:
             detalles.append("Mejora térmica robusta en devanado")
         elif delta_dev < 0:
             detalles.append("Mejora térmica moderada en devanado")
 
     if a_max is not None and d_max is not None:
         delta_max = d_max - a_max
-        if delta_max > 3:
+        if delta_max > UMBRAL_DELTA_CRITICO:
             score -= 15
             detalles.append("Aumento en máximos térmicos")
         elif delta_max > 0:
@@ -207,21 +216,59 @@ def calcular_score_global(df_antes, df_despues):
             score -= 6
             detalles.append("Estabilidad térmica inferior")
 
-    if a_ci is not None and d_ci is not None:
-        delta_ci = d_ci - a_ci
-        if delta_ci > 3:
-            score -= 18
-            detalles.append("Incremento relevante en cojinete inferior")
-        elif delta_ci > 0:
-            score -= 8
-            detalles.append("Leve incremento en cojinete inferior")
+    # ── Núcleo del estátor (peso medio-alto) ───────────────────────────────
+    a_nuc, _, _, _, _ = stats(df_antes, "Temp_Nucleo_Estator2_C") if not df_antes.empty else (None,)*5
+    d_nuc, _, _, _, _ = stats(df_despues, "Temp_Nucleo_Estator2_C") if not df_despues.empty else (None,)*5
+    if a_nuc is not None and d_nuc is not None:
+        delta_nuc = d_nuc - a_nuc
+        if delta_nuc > UMBRAL_DELTA_CRITICO:
+            score -= 15
+            detalles.append("Incremento relevante en núcleo del estátor")
+        elif delta_nuc > 0:
+            score -= 7
+            detalles.append("Leve incremento en núcleo del estátor")
+
+    # ── Cojinetes (peso medio por cada uno) ───────────────────────────────
+    _cojinetes_score = [
+        ("Temp_Metal_CojInf_Seg4_C",  "Cojinete inferior",  18, 8),
+        ("Temp_Metal_CojSup_Seg07_C", "Cojinete superior",  14, 6),
+        ("Temp_Metal_CojTurbina_C",   "Cojinete turbina",   12, 5),
+        ("Temp_Metal_CojEmp_Seg3_C",  "Cojinete empuje",    10, 4),
+    ]
+    for col, nom, pen_critico, pen_leve in _cojinetes_score:
+        a_v, _, _, _, _ = stats(df_antes, col) if not df_antes.empty else (None,)*5
+        d_v, _, _, _, _ = stats(df_despues, col) if not df_despues.empty else (None,)*5
+        if a_v is not None and d_v is not None:
+            delta_v = d_v - a_v
+            if delta_v > UMBRAL_DELTA_CRITICO:
+                score -= pen_critico
+                detalles.append(f"Incremento relevante en {nom}")
+            elif delta_v > 0:
+                score -= pen_leve
+                detalles.append(f"Leve incremento en {nom}")
+
+    # ── Aceite transformador (peso medio) ─────────────────────────────────
+    a_ac, _, _, _, _ = stats(df_antes, "Temp_Aceite_Transf") if not df_antes.empty else (None,)*5
+    d_ac, _, _, _, _ = stats(df_despues, "Temp_Aceite_Transf") if not df_despues.empty else (None,)*5
+    if a_ac is not None and d_ac is not None:
+        delta_ac = d_ac - a_ac
+        if delta_ac > UMBRAL_DELTA_CRITICO:
+            score -= 12
+            detalles.append("Incremento relevante en aceite del transformador")
+        elif delta_ac > 0:
+            score -= 5
+            detalles.append("Leve incremento en aceite del transformador")
+
+    # ── Presión de refrigeración ───────────────────────────────────────────
+    a_pres = safe_mean(df_antes, "Pres_Agua_SistRefrig_bar") if not df_antes.empty else None
+    d_pres = safe_mean(df_despues, "Pres_Agua_SistRefrig_bar") if not df_despues.empty else None
 
     if a_pres is not None and d_pres is not None:
         delta_pres = d_pres - a_pres
-        if delta_pres < -0.3:
+        if delta_pres < UMBRAL_PRES_CRITICA:
             score -= 12
             detalles.append("Caída importante en presión de refrigeración")
-        elif delta_pres < -0.1:
+        elif delta_pres < UMBRAL_PRES_LEVE:
             score -= 5
             detalles.append("Ligera reducción en presión de refrigeración")
 
@@ -247,63 +294,64 @@ def calcular_score_global(df_antes, df_despues):
     return score, estado, color, lectura, detalles[:3]
 
 
+def _hallazgo_termico(nombre, delta, umbral_critico=UMBRAL_DELTA_CRITICO, umbral_mejora=UMBRAL_DELTA_MEJORA):
+    """Construye un dict de hallazgo estándar para una variable térmica."""
+    return {
+        "Hallazgo": nombre,
+        "Delta (°C)": delta,
+        "Lectura": (
+            f"Mejora térmica robusta en {nombre}."
+            if delta <= umbral_mejora else
+            f"Mejora térmica moderada en {nombre}."
+            if delta < 0 else
+            f"Incremento relevante en {nombre}; monitorear."
+            if delta > umbral_critico else
+            f"Leve incremento en {nombre}; seguir tendencia."
+        ),
+        "Prioridad": "Alta" if delta > umbral_critico else "Media" if delta > 0 else "Baja"
+    }
+
+
 def construir_hallazgos(df_antes, df_despues):
     hallazgos = []
 
-    a_dev, _, _, _, _ = stats(df_antes, "Temp_Dev_Prom") if not df_antes.empty else (None,)*5
-    d_dev, _, _, _, _ = stats(df_despues, "Temp_Dev_Prom") if not df_despues.empty else (None,)*5
-    a_ci, _, _, _, _ = stats(df_antes, "Temp_Metal_CojInf_Seg4_C") if not df_antes.empty else (None,)*5
-    d_ci, _, _, _, _ = stats(df_despues, "Temp_Metal_CojInf_Seg4_C") if not df_despues.empty else (None,)*5
+    # ── Variables térmicas a evaluar ───────────────────────────────────────
+    vars_termicas = [
+        ("Temp_Dev_Prom",             "Devanado promedio"),
+        ("Temp_Nucleo_Estator2_C",    "Núcleo del estátor"),
+        ("Temp_Metal_CojInf_Seg4_C",  "Cojinete inferior"),
+        ("Temp_Metal_CojSup_Seg07_C", "Cojinete superior"),
+        ("Temp_Metal_CojTurbina_C",   "Cojinete turbina"),
+        ("Temp_Metal_CojEmp_Seg3_C",  "Cojinete empuje"),
+        ("Temp_Aceite_Transf",        "Aceite transformador"),
+    ]
+    for col, nom in vars_termicas:
+        a_v, _, _, _, _ = stats(df_antes, col) if not df_antes.empty else (None,)*5
+        d_v, _, _, _, _ = stats(df_despues, col) if not df_despues.empty else (None,)*5
+        if a_v is not None and d_v is not None:
+            hallazgos.append(_hallazgo_termico(nom, round(d_v - a_v, 1)))
+
+    # ── Presión de refrigeración (lógica invertida: baja = malo) ──────────
     a_pres = safe_mean(df_antes, "Pres_Agua_SistRefrig_bar") if not df_antes.empty else None
     d_pres = safe_mean(df_despues, "Pres_Agua_SistRefrig_bar") if not df_despues.empty else None
-
-    if a_dev is not None and d_dev is not None:
-        delta = round(d_dev - a_dev, 1)
-        hallazgos.append({
-            "Hallazgo": "Devanado promedio",
-            "Delta": delta,
-            "Lectura": (
-                "Mejora térmica robusta posterior a la modernización."
-                if delta <= -10 else
-                "Mejora térmica moderada del devanado."
-                if delta < 0 else
-                "Incremento térmico del devanado; revisar comparabilidad y enfriamiento."
-            ),
-            "Prioridad": "Alta" if delta > 0 else "Media" if delta > -5 else "Baja"
-        })
-
-    if a_ci is not None and d_ci is not None:
-        delta = round(d_ci - a_ci, 1)
-        hallazgos.append({
-            "Hallazgo": "Cojinete inferior",
-            "Delta": delta,
-            "Lectura": (
-                "Incremento relevante en cojinete inferior."
-                if delta > 3 else
-                "Leve incremento térmico en cojinete inferior."
-                if delta > 0 else
-                "Comportamiento térmico controlado en cojinete inferior."
-            ),
-            "Prioridad": "Alta" if delta > 3 else "Media" if delta > 0 else "Baja"
-        })
 
     if a_pres is not None and d_pres is not None:
         delta = round(d_pres - a_pres, 2)
         hallazgos.append({
             "Hallazgo": "Presión de refrigeración",
-            "Delta": delta,
+            "Delta (°C)": delta,
             "Lectura": (
                 "Disminución importante en presión del sistema de refrigeración."
-                if delta < -0.3 else
+                if delta < UMBRAL_PRES_CRITICA else
                 "Ligera disminución de presión; seguir tendencia."
                 if delta < 0 else
                 "Presión de refrigeración estable o superior."
             ),
-            "Prioridad": "Alta" if delta < -0.3 else "Media" if delta < 0 else "Baja"
+            "Prioridad": "Alta" if delta < UMBRAL_PRES_CRITICA else "Media" if delta < 0 else "Baja"
         })
 
     if not hallazgos:
-        return pd.DataFrame(columns=["Hallazgo", "Delta", "Lectura", "Prioridad"])
+        return pd.DataFrame(columns=["Hallazgo", "Delta (°C)", "Lectura", "Prioridad"])
 
     prioridad_orden = {"Alta": 0, "Media": 1, "Baja": 2}
     df_h = pd.DataFrame(hallazgos)
@@ -348,6 +396,45 @@ def build_conclusiones_subsistemas(df_antes, df_despues):
                 "Conclusión": conclusion
             })
     return pd.DataFrame(rows) if rows else pd.DataFrame()
+
+
+# ==============================================================================
+# FUNCIONES DE ANÁLISIS DE TENDENCIAS
+# ==============================================================================
+def detectar_tendencia_despues(df_despues, col):
+    """
+    Calcula la pendiente lineal mes a mes de una variable en el período DESPUÉS.
+    Retorna (pendiente_°C_por_mes, df_mensual) o (None, None) si no hay datos.
+    Una pendiente positiva indica calentamiento progresivo (señal de alerta).
+    """
+    if df_despues.empty or col not in df_despues.columns:
+        return None, None
+    df_men = (
+        df_despues.groupby("Mes_Num")[col].mean()
+        .reset_index().sort_values("Mes_Num").dropna()
+    )
+    if len(df_men) < 2:
+        return None, None
+    x = np.arange(len(df_men))
+    y = df_men[col].values
+    slope, _ = np.polyfit(x, y, 1)
+    return round(float(slope), 3), df_men
+
+
+def interpretar_tendencia(slope):
+    """Texto e icono según la pendiente mensual calculada."""
+    if slope is None:
+        return "—", "#888888"
+    if slope > 1.0:
+        return f"🔴 Alza rápida (+{slope:.2f}°C/mes)", "#C00000"
+    elif slope > 0.3:
+        return f"🟠 Alza moderada (+{slope:.2f}°C/mes)", "#E65100"
+    elif slope > 0.05:
+        return f"🟡 Alza leve (+{slope:.2f}°C/mes)", "#E6A800"
+    elif slope >= -0.05:
+        return f"⚪ Estable ({slope:+.2f}°C/mes)", "#666666"
+    else:
+        return f"🟢 Descenso ({slope:+.2f}°C/mes)", "#1B7A4E"
 
 
 # ==============================================================================
@@ -1135,8 +1222,8 @@ with tabs_dict["tab1"]:
                 hovertemplate="Mes: %{x}<br>Temperatura: %{y:.1f}°C<extra></extra>"
             ))
 
-    fig.add_hline(y=80, line_dash="dash", line_color=C_ALERTA,
-                  annotation_text="Umbral 80°C", annotation_position="top right")
+    fig.add_hline(y=UMBRAL_DEV_ALERTA, line_dash="dash", line_color=C_ALERTA,
+                  annotation_text=f"Umbral {UMBRAL_DEV_ALERTA}°C", annotation_position="top right")
     if a_avg is not None:
         fig.add_hline(y=a_avg, line_dash="dot", line_color=C_ANTES,
                       annotation_text=f"Prom ANTES: {a_avg}°C")
@@ -1154,6 +1241,63 @@ with tabs_dict["tab1"]:
         height=420, barmode="group"
     )
     st.plotly_chart(fig, use_container_width=True)
+
+    # ── Detección de tendencias en período DESPUÉS ─────────
+    st.markdown('<div class="seccion-titulo">📈 ALERTAS DE TENDENCIA — PERÍODO DESPUÉS (pendiente mensual)</div>', unsafe_allow_html=True)
+
+    _vars_tendencia = [
+        ("Temp_Dev_Prom",             "Devanado Prom."),
+        ("Temp_Nucleo_Estator2_C",    "Núcleo Estátor"),
+        ("Temp_Metal_CojInf_Seg4_C",  "Coj. Inferior"),
+        ("Temp_Metal_CojSup_Seg07_C", "Coj. Superior"),
+        ("Temp_Metal_CojTurbina_C",   "Coj. Turbina"),
+        ("Temp_Metal_CojEmp_Seg3_C",  "Coj. Empuje"),
+        ("Temp_Aceite_Transf",        "Aceite Transf."),
+    ]
+
+    tend_rows = []
+    for col, nom in _vars_tendencia:
+        slope, _ = detectar_tendencia_despues(df_despues, col)
+        texto, color = interpretar_tendencia(slope)
+        tend_rows.append({"Variable": nom, "Tendencia": texto, "Pendiente (°C/mes)": slope if slope is not None else "—"})
+
+    df_tend = pd.DataFrame(tend_rows)
+    if not df_tend.empty:
+        st.dataframe(df_tend, use_container_width=True, hide_index=True)
+
+    # Gráfico de pendientes
+    if not df_despues.empty:
+        slope_dev, df_dev_men = detectar_tendencia_despues(df_despues, "Temp_Dev_Prom")
+        if df_dev_men is not None and len(df_dev_men) >= 2:
+            x_idx = np.arange(len(df_dev_men))
+            slope_v, intercept_v = np.polyfit(x_idx, df_dev_men["Temp_Dev_Prom"].values, 1)
+            y_trend = slope_v * x_idx + intercept_v
+
+            # Necesitamos las etiquetas de mes para el eje x
+            mes_labels_tend = df_despues.drop_duplicates("Mes_Num").sort_values("Mes_Num")
+            mes_labels_tend = mes_labels_tend.set_index("Mes_Num")["Mes_Label"]
+            df_dev_men["Mes_Label"] = df_dev_men["Mes_Num"].map(mes_labels_tend)
+
+            fig_tend = go.Figure()
+            fig_tend.add_trace(go.Scatter(
+                x=df_dev_men["Mes_Label"], y=df_dev_men["Temp_Dev_Prom"],
+                mode="lines+markers", name="Devanado DESPUÉS",
+                line=dict(color=C_DESPUES, width=2.5), marker=dict(size=7)
+            ))
+            fig_tend.add_trace(go.Scatter(
+                x=df_dev_men["Mes_Label"], y=y_trend,
+                mode="lines", name=f"Tendencia ({slope_dev:+.2f}°C/mes)",
+                line=dict(color=C_DELTA, width=2, dash="dash")
+            ))
+            fig_tend.add_hline(y=UMBRAL_DEV_ALERTA, line_dash="dot", line_color=C_ALERTA,
+                               annotation_text=f"Umbral {UMBRAL_DEV_ALERTA}°C")
+            fig_tend.update_layout(
+                title="Tendencia mensual del devanado en período DESPUÉS",
+                xaxis_title="Mes", yaxis_title="Temperatura (°C)",
+                plot_bgcolor=theme_cfg["plot_bg"], paper_bgcolor=theme_cfg["paper_bg"],
+                legend=dict(orientation="h", y=1.12), height=380
+            )
+            st.plotly_chart(fig_tend, use_container_width=True)
 
     # ── Matriz térmica mensual ──────────────────────────────
     with st.expander("🔥 Ver matriz térmica mensual", expanded=not modo_movil):
@@ -1308,6 +1452,72 @@ with tabs_dict["tab1"]:
             st.plotly_chart(fig_rank, use_container_width=True)
 
     # ── Comparación mes a mes ──────────────────────────────
+    # ── Correlación potencia-temperatura ───────────────────
+    with st.expander("⚡ Ver correlación potencia-temperatura", expanded=False):
+        st.markdown('<div class="seccion-titulo">⚡ CORRELACIÓN POTENCIA — TEMPERATURA DEVANADO</div>', unsafe_allow_html=True)
+        st.markdown(
+            "_Este análisis valida si las diferencias térmicas entre períodos se explican por la potencia operada. "
+            "Curvas similares confirman que la comparación ANTES/DESPUÉS es justa._"
+        )
+
+        col_corr = "Temp_Dev_Prom"
+        col_pot  = "Potencia_Activa_MW"
+
+        fig_corr = go.Figure()
+        for p_name, df_p, col_c in [("ANTES", df_antes, C_ANTES), ("DESPUÉS", df_despues, C_DESPUES)]:
+            if not df_p.empty and col_corr in df_p.columns and col_pot in df_p.columns:
+                tmp = df_p[[col_pot, col_corr]].dropna()
+                if len(tmp) > 5:
+                    # Muestra subconjunto para no saturar el gráfico
+                    sample = tmp.sample(min(800, len(tmp)), random_state=42).sort_values(col_pot)
+                    fig_corr.add_trace(go.Scatter(
+                        x=sample[col_pot], y=sample[col_corr],
+                        mode="markers", name=p_name,
+                        marker=dict(color=col_c, size=4, opacity=0.5),
+                        hovertemplate=f"Potencia: %{{x:.1f}} MW<br>Temp: %{{y:.1f}}°C<extra>{p_name}</extra>"
+                    ))
+                    # Línea de tendencia (regresión lineal)
+                    x_v = sample[col_pot].values
+                    y_v = sample[col_corr].values
+                    m, b = np.polyfit(x_v, y_v, 1)
+                    x_line = np.linspace(x_v.min(), x_v.max(), 50)
+                    fig_corr.add_trace(go.Scatter(
+                        x=x_line, y=m * x_line + b,
+                        mode="lines", name=f"Tendencia {p_name}",
+                        line=dict(color=col_c, width=2.5, dash="dash")
+                    ))
+
+        fig_corr.add_hline(y=UMBRAL_DEV_ALERTA, line_dash="dot", line_color=C_ALERTA,
+                           annotation_text=f"Umbral {UMBRAL_DEV_ALERTA}°C")
+        fig_corr.update_layout(
+            title="Temperatura devanado vs Potencia activa — ANTES vs DESPUÉS",
+            xaxis_title="Potencia activa (MW)",
+            yaxis_title="Temperatura devanado promedio (°C)",
+            plot_bgcolor=theme_cfg["plot_bg"],
+            paper_bgcolor=theme_cfg["paper_bg"],
+            legend=dict(orientation="h", y=1.12),
+            height=430
+        )
+        st.plotly_chart(fig_corr, use_container_width=True)
+
+        # Correlación numérica
+        corr_rows = []
+        for p_name, df_p in [("ANTES", df_antes), ("DESPUÉS", df_despues)]:
+            if not df_p.empty and col_corr in df_p.columns and col_pot in df_p.columns:
+                tmp = df_p[[col_pot, col_corr]].dropna()
+                if len(tmp) > 5:
+                    corr_val = round(float(tmp.corr().iloc[0, 1]), 3)
+                    m, b = np.polyfit(tmp[col_pot].values, tmp[col_corr].values, 1)
+                    corr_rows.append({
+                        "Período": p_name,
+                        "Correlación r": corr_val,
+                        "Pendiente (°C/MW)": round(m, 3),
+                        "Intercepto (°C)": round(b, 1),
+                        "Registros": len(tmp)
+                    })
+        if corr_rows:
+            st.dataframe(pd.DataFrame(corr_rows), use_container_width=True, hide_index=True)
+
     if activar_comp:
         st.markdown("---")
         st.markdown(
@@ -1520,7 +1730,7 @@ if "tab2" in tabs_dict:
                     title="Distribución de temperatura por fase",
                     labels={"Temp": "Temperatura (°C)"}
                 )
-                fig_b.add_hline(y=80, line_dash="dash", line_color=C_ALERTA, annotation_text="Umbral 80°C")
+                fig_b.add_hline(y=UMBRAL_DEV_ALERTA, line_dash="dash", line_color=C_ALERTA, annotation_text=f"Umbral {UMBRAL_DEV_ALERTA}°C")
                 fig_b.update_layout(
                     plot_bgcolor=theme_cfg["plot_bg"], paper_bgcolor=theme_cfg["paper_bg"],
                     legend=dict(orientation="h", y=1.12), height=390
@@ -1537,7 +1747,7 @@ if "tab2" in tabs_dict:
                         line=dict(color=c, width=3), marker=dict(size=8),
                         text=d["Nucleo"], textposition="top center"
                     ))
-            fig_n.add_hline(y=85, line_dash="dash", line_color=C_ALERTA, annotation_text="Umbral 85°C")
+            fig_n.add_hline(y=UMBRAL_NUCLEO_ALERTA, line_dash="dash", line_color=C_ALERTA, annotation_text=f"Umbral {UMBRAL_NUCLEO_ALERTA}°C")
             fig_n.update_layout(
                 title="Temperatura mensual del núcleo del estátor",
                 xaxis_title="Mes",
@@ -1557,7 +1767,7 @@ if "tab2" in tabs_dict:
                         title="Distribución de temperatura por fase",
                         labels={"Temp": "Temperatura (°C)"}
                     )
-                    fig_b.add_hline(y=80, line_dash="dash", line_color=C_ALERTA, annotation_text="Umbral 80°C")
+                    fig_b.add_hline(y=UMBRAL_DEV_ALERTA, line_dash="dash", line_color=C_ALERTA, annotation_text=f"Umbral {UMBRAL_DEV_ALERTA}°C")
                     fig_b.update_layout(
                         plot_bgcolor=theme_cfg["plot_bg"], paper_bgcolor=theme_cfg["paper_bg"],
                         legend=dict(orientation="h", y=1.12), height=390
@@ -1575,7 +1785,7 @@ if "tab2" in tabs_dict:
                             line=dict(color=c, width=3), marker=dict(size=8),
                             text=d["Nucleo"], textposition="top center"
                         ))
-                fig_n.add_hline(y=85, line_dash="dash", line_color=C_ALERTA, annotation_text="Umbral 85°C")
+                fig_n.add_hline(y=UMBRAL_NUCLEO_ALERTA, line_dash="dash", line_color=C_ALERTA, annotation_text=f"Umbral {UMBRAL_NUCLEO_ALERTA}°C")
                 fig_n.update_layout(
                     title="Temperatura mensual del núcleo del estátor",
                     xaxis_title="Mes",
