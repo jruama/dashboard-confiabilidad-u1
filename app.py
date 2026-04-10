@@ -1400,7 +1400,7 @@ with tabs_dict["tab1"]:
                 return ""
 
             st.dataframe(
-                df_res.style.format(fmt).applymap(color_delta, subset=["Δ Prom", "Mejora %"]),
+                df_res.style.format(fmt).map(color_delta, subset=["Δ Prom", "Mejora %"]),
                 use_container_width=True, hide_index=True, height=380
             )
 
@@ -1648,7 +1648,7 @@ with tabs_dict["tab1"]:
                     f"ANTES {mes_comp_antes_label}": "{:.1f}",
                     f"DESPUÉS {mes_comp_desp_label}": "{:.1f}",
                     "Delta (°C)": "{:.1f}",
-                }).applymap(cc, subset=["Delta (°C)"]),
+                }).map(cc, subset=["Delta (°C)"]),
                 use_container_width=True, hide_index=True
             )
 
